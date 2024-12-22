@@ -20,24 +20,39 @@ impl InMemoryKVStore {
         tokio::spawn(wal_task(store.batch.clone()));
         store
     }
-    pub async fn add(&self, key: &str, value: &str, wal_needed: bool) -> Result<String> {
+    pub async fn add(
+        &self,
+        key: &str,
+        value: &str,
+        force: &bool,
+        wal_needed: bool,
+    ) -> Result<String> {
         let mut store = self.kv_store.lock().await;
         if wal_needed {
-            log(&self.batch, "ADD", "INFO", key, Some(value));
+            log(&self.batch, "ADD", "INFO", key, Some(value), Some(force));
         }
         let add_kv = store.insert(key.to_owned(), value.to_owned());
         match add_kv {
-            Some(old_value) => Ok(format!(
-                "kv overwritten in store:- value {} -> {}",
-                old_value, value,
-            )),
+            Some(old_value) => {
+                if *force {
+                    Ok(format!(
+                        "kv overwritten in store:- value {} -> {}",
+                        old_value, value,
+                    ))
+                } else {
+                    Err(anyhow!(
+                        "key-value already present in store: {}, set force to true to force add it",
+                        key
+                    ))
+                }
+            }
             None => Ok(format!("kv added to store {}: {}", key, value)),
         }
     }
     pub async fn remove(&self, key: &str, wal_needed: bool) -> Result<String> {
         let mut store = self.kv_store.lock().await;
         if wal_needed {
-            log(&self.batch, "REMOVE", "INFO", key, None);
+            log(&self.batch, "REMOVE", "INFO", key, None, None);
         }
         let remove_kv = store.remove(key);
         match remove_kv {
@@ -59,18 +74,33 @@ impl InMemoryKVStore {
             )),
         }
     }
-    pub async fn update(&self, key: &str, value: &str, wal_needed: bool) -> Result<String> {
+    pub async fn update(
+        &self,
+        key: &str,
+        value: &str,
+        force: &bool,
+        wal_needed: bool,
+    ) -> Result<String> {
         let mut store = self.kv_store.lock().await;
         if wal_needed {
-            log(&self.batch, "UPDATE", "INFO", key, Some(value));
+            log(&self.batch, "UPDATE", "INFO", key, Some(value), Some(force));
         }
         let update_kv = store.insert(key.to_owned(), value.to_owned());
         match update_kv {
             Some(val) => Ok(format!("kv updated in store: {}", val)),
-            None => Ok(format!(
-                "kv added to store because it doesn't exists:- {}: {}",
-                key, value
-            )),
+            None => {
+                if *force {
+                    Ok(format!(
+                        "kv added to store because it doesn't exists:- {}: {}",
+                        key, value
+                    ))
+                } else {
+                    Err(anyhow!(
+                        "key-value doesn't exists:- key: {}, set force to true to force create it",
+                        key
+                    ))
+                }
+            }
         }
     }
 }

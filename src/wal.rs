@@ -25,19 +25,25 @@ pub async fn replay(kv_store: &InMemoryKVStore) -> Result<()> {
                 pairs.insert(key.to_string(), value.to_string());
             }
         }
-        let operation = pairs
-            .get("operation")
-            .expect("operation will always be present...");
-        let key = pairs.get("key").expect("key will always be present...");
+        let operation = pairs.get("operation").unwrap();
+        let key = pairs.get("key").unwrap();
         let unquoted_key = &key[1..key.len() - 1];
-        let value = pairs.get("value").expect("value will always be present...");
+        let value = pairs.get("value").unwrap();
         let unquoted_value = &value[1..value.len() - 1];
+        let force = pairs
+            .get("force")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(false);
         if operation == "ADD" {
-            let _add_op = kv_store.add(unquoted_key, unquoted_value, false).await;
+            let _add_op = kv_store
+                .add(unquoted_key, unquoted_value, &force, false)
+                .await;
         } else if operation == "REMOVE" {
             let _remove_op = kv_store.remove(unquoted_key, false).await;
         } else if operation == "UPDATE" {
-            let _update_op = kv_store.update(unquoted_key, unquoted_value, false).await;
+            let _update_op = kv_store
+                .update(unquoted_key, unquoted_value, &force, false)
+                .await;
         }
     }
     Ok(())
@@ -49,15 +55,17 @@ pub fn log(
     level: &str,
     key: &str,
     value: Option<&str>,
+    force: Option<&bool>,
 ) {
     let timestamp = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
     let operation_log = format!(
-        "time={} operation={} level={} key=\"{}\" value=\"{}\"",
+        "time={} operation={} level={} key=\"{}\" value=\"{}\" force={}",
         timestamp,
         operation,
         level,
         key,
-        value.unwrap_or("None")
+        value.unwrap_or("None"),
+        force.map_or("None".to_string(), |f| f.to_string())
     );
     batch.push(operation_log);
 }

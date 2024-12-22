@@ -13,6 +13,7 @@ use serde_json::json;
 struct Payload {
     key: String,
     value: Option<String>,
+    force: Option<bool>,
 }
 
 async fn add_kv(
@@ -30,6 +31,7 @@ async fn add_kv(
         .add(
             &payload.key,
             &payload.value.expect("value will always be present here..."),
+            &payload.force.unwrap_or(false),
             true,
         )
         .await
@@ -60,6 +62,7 @@ async fn update_kv(
         .update(
             &payload.key,
             &payload.value.expect("value will always be present here..."),
+            &payload.force.unwrap_or(false),
             true,
         )
         .await
