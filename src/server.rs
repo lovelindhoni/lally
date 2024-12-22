@@ -1,10 +1,13 @@
 use crate::kv_store::InMemoryKVStore;
+use crate::wal::replay;
+use anyhow::Result;
 use axum::extract::{Json, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, post, put};
 use axum::Router;
 use serde::Deserialize;
+use serde_json::json;
 
 #[derive(Deserialize)]
 struct Payload {
@@ -19,19 +22,26 @@ async fn add_kv(
     if payload.value.is_none() {
         return (
             StatusCode::BAD_REQUEST,
-            "Missing required field: value".to_string(),
-        )
-            .into_response();
+            Json(json!({ "status": "error", "message": "Missing required field: value" })),
+        );
     }
+
     match kv_store
         .add(
             &payload.key,
-            &payload.value.expect("value will be always present here..."),
+            &payload.value.expect("value will always be present here..."),
+            true,
         )
         .await
     {
-        Ok(response) => (StatusCode::OK, response).into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+        Ok(response) => (
+            StatusCode::OK,
+            Json(json!({ "status": "success", "data": response })),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "status": "error", "message": e.to_string() })),
+        ),
     }
 }
 
@@ -42,19 +52,26 @@ async fn update_kv(
     if payload.value.is_none() {
         return (
             StatusCode::BAD_REQUEST,
-            "Missing required field: value".to_string(),
-        )
-            .into_response();
+            Json(json!({ "status": "error", "message": "Missing required field: value" })),
+        );
     }
+
     match kv_store
         .update(
             &payload.key,
-            &payload.value.expect("value will be always present here..."),
+            &payload.value.expect("value will always be present here..."),
+            true,
         )
         .await
     {
-        Ok(response) => (StatusCode::OK, response).into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+        Ok(response) => (
+            StatusCode::OK,
+            Json(json!({ "status": "success", "data": response })),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "status": "error", "message": e.to_string() })),
+        ),
     }
 }
 
@@ -63,8 +80,14 @@ async fn get_kv(
     Json(payload): Json<Payload>,
 ) -> impl IntoResponse {
     match kv_store.get(&payload.key).await {
-        Ok(response) => (StatusCode::OK, response).into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+        Ok(response) => (
+            StatusCode::OK,
+            Json(json!({ "status": "success", "data": response })),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "status": "error", "message": e.to_string() })),
+        ),
     }
 }
 
@@ -72,9 +95,15 @@ async fn remove_kv(
     State(kv_store): State<InMemoryKVStore>,
     Json(payload): Json<Payload>,
 ) -> impl IntoResponse {
-    match kv_store.remove(&payload.key).await {
-        Ok(response) => (StatusCode::OK, response).into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    match kv_store.remove(&payload.key, true).await {
+        Ok(response) => (
+            StatusCode::OK,
+            Json(json!({ "status": "success", "data": response })),
+        ),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "status": "error", "message": e.to_string() })),
+        ),
     }
 }
 
@@ -82,8 +111,9 @@ async fn greet() -> &'static str {
     "Hello World! from kvr"
 }
 
-pub async fn run() {
+pub async fn run() -> Result<()> {
     let state = InMemoryKVStore::new();
+    replay(&state).await?;
     let app = Router::new()
         .route("/", get(greet))
         .route("/get", post(get_kv))
@@ -92,10 +122,9 @@ pub async fn run() {
         .route("/update", put(update_kv))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
 
     println!("kvr started at 127.0.0.1:3000...");
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app).await?;
+    Ok(())
 }
