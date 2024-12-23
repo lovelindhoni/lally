@@ -10,10 +10,10 @@ use serde::Deserialize;
 use serde_json::json;
 
 #[derive(Deserialize)]
-struct Payload {
-    key: String,
-    value: Option<String>,
-    force: Option<bool>,
+pub struct Payload {
+    pub key: String,
+    pub value: Option<String>,
+    pub force: Option<bool>,
 }
 
 async fn add_kv(
@@ -27,15 +27,7 @@ async fn add_kv(
         );
     }
 
-    match kv_store
-        .add(
-            &payload.key,
-            &payload.value.expect("value will always be present here..."),
-            &payload.force.unwrap_or(false),
-            true,
-        )
-        .await
-    {
+    match kv_store.add(&payload, true).await {
         Ok(response) => (
             StatusCode::OK,
             Json(json!({ "status": "success", "data": response })),
@@ -58,15 +50,7 @@ async fn update_kv(
         );
     }
 
-    match kv_store
-        .update(
-            &payload.key,
-            &payload.value.expect("value will always be present here..."),
-            &payload.force.unwrap_or(false),
-            true,
-        )
-        .await
-    {
+    match kv_store.update(&payload, true).await {
         Ok(response) => (
             StatusCode::OK,
             Json(json!({ "status": "success", "data": response })),
@@ -82,7 +66,7 @@ async fn get_kv(
     State(kv_store): State<InMemoryKVStore>,
     Json(payload): Json<Payload>,
 ) -> impl IntoResponse {
-    match kv_store.get(&payload.key).await {
+    match kv_store.get(&payload).await {
         Ok(response) => (
             StatusCode::OK,
             Json(json!({ "status": "success", "data": response })),
@@ -98,7 +82,7 @@ async fn remove_kv(
     State(kv_store): State<InMemoryKVStore>,
     Json(payload): Json<Payload>,
 ) -> impl IntoResponse {
-    match kv_store.remove(&payload.key, true).await {
+    match kv_store.remove(&payload, true).await {
         Ok(response) => (
             StatusCode::OK,
             Json(json!({ "status": "success", "data": response })),

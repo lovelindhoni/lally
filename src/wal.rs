@@ -1,4 +1,5 @@
 use crate::kv_store::InMemoryKVStore;
+use crate::server::Payload;
 use anyhow::Result;
 use chrono::prelude::Utc;
 use crossbeam::queue::SegQueue;
@@ -14,6 +15,7 @@ pub async fn replay(kv_store: &InMemoryKVStore) -> Result<()> {
         .read(true)
         .write(true)
         .create(true)
+        .truncate(false)
         .open(path)
         .await?;
     let reader = BufReader::new(file);
@@ -26,46 +28,38 @@ pub async fn replay(kv_store: &InMemoryKVStore) -> Result<()> {
             }
         }
         let operation = pairs.get("operation").unwrap();
-        let key = pairs.get("key").unwrap();
-        let unquoted_key = &key[1..key.len() - 1];
-        let value = pairs.get("value").unwrap();
-        let unquoted_value = &value[1..value.len() - 1];
-        let force = pairs
-            .get("force")
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(false);
+        let key = pairs
+            .get("key")
+            .expect("Missing key")
+            .trim_matches('"')
+            .to_string();
+        let value = pairs
+            .get("value")
+            .map(|v| v.trim_matches('"').to_string())
+            .filter(|v| v != "None");
+        let force = pairs.get("force").and_then(|s| s.parse().ok());
+        let payload = Payload { key, value, force };
         if operation == "ADD" {
-            let _add_op = kv_store
-                .add(unquoted_key, unquoted_value, &force, false)
-                .await;
+            let _add_op = kv_store.add(&payload, false).await;
         } else if operation == "REMOVE" {
-            let _remove_op = kv_store.remove(unquoted_key, false).await;
+            let _remove_op = kv_store.remove(&payload, false).await;
         } else if operation == "UPDATE" {
-            let _update_op = kv_store
-                .update(unquoted_key, unquoted_value, &force, false)
-                .await;
+            let _update_op = kv_store.update(&payload, false).await;
         }
     }
     Ok(())
 }
 
-pub fn log(
-    batch: &Arc<SegQueue<String>>,
-    operation: &str,
-    level: &str,
-    key: &str,
-    value: Option<&str>,
-    force: Option<&bool>,
-) {
+pub fn log(batch: &Arc<SegQueue<String>>, operation: &str, level: &str, payload: &Payload) {
     let timestamp = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
     let operation_log = format!(
         "time={} operation={} level={} key=\"{}\" value=\"{}\" force={}",
         timestamp,
         operation,
         level,
-        key,
-        value.unwrap_or("None"),
-        force.map_or("None".to_string(), |f| f.to_string())
+        payload.key,
+        payload.value.as_deref().unwrap_or("None"),
+        payload.force.map_or("None".to_string(), |f| f.to_string())
     );
     batch.push(operation_log);
 }

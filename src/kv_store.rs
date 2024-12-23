@@ -1,3 +1,4 @@
+use crate::server::Payload;
 use crate::wal::{log, wal_task};
 use anyhow::{anyhow, Result};
 use crossbeam::queue::SegQueue;
@@ -20,24 +21,21 @@ impl InMemoryKVStore {
         tokio::spawn(wal_task(store.batch.clone()));
         store
     }
-    pub async fn add(
-        &self,
-        key: &str,
-        value: &str,
-        force: &bool,
-        wal_needed: bool,
-    ) -> Result<String> {
+    pub async fn add(&self, payload: &Payload, wal_needed: bool) -> Result<String> {
         let mut store = self.kv_store.lock().await;
         if wal_needed {
-            log(&self.batch, "ADD", "INFO", key, Some(value), Some(force));
+            log(&self.batch, "ADD", "INFO", payload);
         }
-        let add_kv = store.insert(key.to_owned(), value.to_owned());
+        let key = &payload.key;
+        let value = payload.value.as_ref().expect("value will be present");
+        let add_kv = store.insert(key.clone(), value.clone());
         match add_kv {
             Some(old_value) => {
-                if *force {
+                if payload.force.unwrap_or(false) {
                     Ok(format!(
                         "kv overwritten in store:- value {} -> {}",
-                        old_value, value,
+                        old_value,
+                        value // payload.value.as_ref().expect("value will be present"),
                     ))
                 } else {
                     Err(anyhow!(
@@ -46,50 +44,53 @@ impl InMemoryKVStore {
                     ))
                 }
             }
-            None => Ok(format!("kv added to store {}: {}", key, value)),
+            None => Ok(format!(
+                "kv added to store {}: {}",
+                payload.key,
+                payload.value.as_ref().expect("value will be present")
+            )),
         }
     }
-    pub async fn remove(&self, key: &str, wal_needed: bool) -> Result<String> {
+    pub async fn remove(&self, payload: &Payload, wal_needed: bool) -> Result<String> {
         let mut store = self.kv_store.lock().await;
         if wal_needed {
-            log(&self.batch, "REMOVE", "INFO", key, None, None);
+            log(&self.batch, "REMOVE", "INFO", payload);
         }
-        let remove_kv = store.remove(key);
+        let remove_kv = store.remove(&payload.key);
         match remove_kv {
             Some(removed_key) => Ok(format!("kv removed from store: key {}", removed_key)),
             None => Err(anyhow!(
                 "kv not removed from store because it doesn't exists: {}",
-                key
+                payload.key
             )),
         }
     }
-    pub async fn get(&self, key: &str) -> Result<String> {
+    pub async fn get(&self, payload: &Payload) -> Result<String> {
         let store = self.kv_store.lock().await;
-        let get_kv = store.get(key);
+        let get_kv = store.get(&payload.key);
         match get_kv {
             Some(value) => Ok(format!("kv fetched from store: {}", value)),
             None => Err(anyhow!(
                 "cannot fetch kv because it doesn't exists: {}",
-                key
+                payload.key
             )),
         }
     }
-    pub async fn update(
-        &self,
-        key: &str,
-        value: &str,
-        force: &bool,
-        wal_needed: bool,
-    ) -> Result<String> {
+    pub async fn update(&self, payload: &Payload, wal_needed: bool) -> Result<String> {
         let mut store = self.kv_store.lock().await;
         if wal_needed {
-            log(&self.batch, "UPDATE", "INFO", key, Some(value), Some(force));
+            log(&self.batch, "UPDATE", "INFO", payload);
         }
-        let update_kv = store.insert(key.to_owned(), value.to_owned());
+        let key = &payload.key;
+        let value = payload
+            .value
+            .as_ref()
+            .expect("value will be always present...");
+        let update_kv = store.insert(key.clone(), value.clone());
         match update_kv {
             Some(val) => Ok(format!("kv updated in store: {}", val)),
             None => {
-                if *force {
+                if payload.force.unwrap_or(false) {
                     Ok(format!(
                         "kv added to store because it doesn't exists:- {}: {}",
                         key, value
@@ -97,7 +98,7 @@ impl InMemoryKVStore {
                 } else {
                     Err(anyhow!(
                         "key-value doesn't exists:- key: {}, set force to true to force create it",
-                        key
+                        payload.key
                     ))
                 }
             }
