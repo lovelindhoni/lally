@@ -28,6 +28,6 @@ async fn main() {
         let canonical_source = canonicalize(source).await.unwrap();
         copy(canonical_source, path).await.unwrap();
     }
-
-    server::run().await.unwrap();
+    let port = conf.port.unwrap_or(3000);
+    server::run(port).await.unwrap();
 }

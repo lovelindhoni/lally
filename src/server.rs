@@ -98,7 +98,7 @@ async fn greet() -> &'static str {
     "Hello World! from kvr"
 }
 
-pub async fn run() -> Result<()> {
+pub async fn run(port: u32) -> Result<()> {
     let state = InMemoryKVStore::new();
     replay(&state).await?;
     let app = Router::new()
@@ -109,9 +109,9 @@ pub async fn run() -> Result<()> {
         .route("/update", put(update_kv))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
+    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
 
-    println!("kvr started at 127.0.0.1:3000...");
+    println!("kvr started at 127.0.0.1:{}...", port);
     axum::serve(listener, app).await?;
     Ok(())
 }
