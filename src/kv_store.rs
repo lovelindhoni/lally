@@ -24,7 +24,7 @@ impl InMemoryKVStore {
     pub async fn add(&self, payload: &Payload, wal_needed: bool) -> Result<String> {
         let mut store = self.kv_store.lock().await;
         if wal_needed {
-            log(&self.batch, "ADD", "INFO", payload);
+            log(self.batch.clone(), "ADD", "INFO", payload);
         }
         let key = &payload.key;
         let value = payload.value.as_ref().expect("value will be present");
@@ -54,7 +54,7 @@ impl InMemoryKVStore {
     pub async fn remove(&self, payload: &Payload, wal_needed: bool) -> Result<String> {
         let mut store = self.kv_store.lock().await;
         if wal_needed {
-            log(&self.batch, "REMOVE", "INFO", payload);
+            log(self.batch.clone(), "REMOVE", "INFO", payload);
         }
         let remove_kv = store.remove(&payload.key);
         match remove_kv {

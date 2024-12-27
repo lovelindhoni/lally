@@ -50,7 +50,7 @@ pub async fn replay(kv_store: &InMemoryKVStore) -> Result<()> {
     Ok(())
 }
 
-pub fn log(batch: &Arc<SegQueue<String>>, operation: &str, level: &str, payload: &Payload) {
+pub fn log(batch: Arc<SegQueue<String>>, operation: &str, level: &str, payload: &Payload) {
     let timestamp = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
     let operation_log = format!(
         "time={} operation={} level={} key=\"{}\" value=\"{}\" force={}",
