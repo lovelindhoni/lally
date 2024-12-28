@@ -1,7 +1,7 @@
 // #![allow(unused)]
 
 mod cli;
-mod kv_store;
+mod kv;
 mod server;
 mod wal;
 

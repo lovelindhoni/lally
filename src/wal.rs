@@ -1,4 +1,4 @@
-use crate::kv_store::InMemoryKVStore;
+use crate::kv::InMemoryKVStore;
 use crate::server::Payload;
 use anyhow::Result;
 use chrono::prelude::Utc;

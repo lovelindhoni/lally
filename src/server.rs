@@ -1,4 +1,4 @@
-use crate::kv_store::InMemoryKVStore;
+use crate::kv::InMemoryKVStore;
 use crate::wal::replay;
 use anyhow::Result;
 use axum::extract::{Json, State};
