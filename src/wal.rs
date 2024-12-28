@@ -10,7 +10,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::time::{interval, Duration};
 
 pub async fn replay(kv_store: &InMemoryKVStore) -> Result<()> {
-    let path = "/home/lovelindhoni/dev/projects/kvr/kvrlog.txt";
+    let path = "/home/lovelindhoni/dev/projects/lally/lallylog.txt";
     let file = OpenOptions::new()
         .read(true)
         .write(true)
@@ -37,14 +37,11 @@ pub async fn replay(kv_store: &InMemoryKVStore) -> Result<()> {
             .get("value")
             .map(|v| v.trim_matches('"').to_string())
             .filter(|v| v != "None");
-        let force = pairs.get("force").and_then(|s| s.parse().ok());
-        let payload = Payload { key, value, force };
+        let payload = Payload { key, value };
         if operation == "ADD" {
             let _add_op = kv_store.add(&payload, false).await;
         } else if operation == "REMOVE" {
             let _remove_op = kv_store.remove(&payload, false).await;
-        } else if operation == "UPDATE" {
-            let _update_op = kv_store.update(&payload, false).await;
         }
     }
     Ok(())
@@ -53,19 +50,20 @@ pub async fn replay(kv_store: &InMemoryKVStore) -> Result<()> {
 pub fn log(batch: Arc<SegQueue<String>>, operation: &str, level: &str, payload: &Payload) {
     let timestamp = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
     let operation_log = format!(
-        "time={} operation={} level={} key=\"{}\" value=\"{}\" force={}",
+        "time={} operation={} level={} key=\"{}\" value=\"{}\"",
         timestamp,
         operation,
         level,
         payload.key,
         payload.value.as_deref().unwrap_or("None"),
-        payload.force.map_or("None".to_string(), |f| f.to_string())
     );
     batch.push(operation_log);
 }
 
 pub async fn wal_task(batch: Arc<SegQueue<String>>) {
-    let path = "/home/lovelindhoni/dev/projects/kvr/kvrlog.txt";
+    // if the lally folder doesn't exists, then this would panic, we should also make
+    // this to create parent folders if needed
+    let path = "/home/lovelindhoni/dev/projects/lally/lallylog.txt";
     let file = OpenOptions::new()
         .append(true)
         .create(true)

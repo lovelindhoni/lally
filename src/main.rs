@@ -11,7 +11,7 @@ use tokio::fs::{canonicalize, copy, OpenOptions};
 #[tokio::main]
 async fn main() {
     let conf = config();
-    let path = "/home/lovelindhoni/dev/projects/kvr/kvrlog.txt";
+    let path = "/home/lovelindhoni/dev/projects/lally/lallylog.txt";
     if conf.fresh && conf.path.is_some() {
         panic!("log file is not needed when starting fresh");
     }

@@ -31,24 +31,13 @@ impl InMemoryKVStore {
         let add_kv = store.insert(key.clone(), value.clone());
         match add_kv {
             Some(old_value) => {
-                if payload.force.unwrap_or(false) {
-                    Ok(format!(
-                        "kv overwritten in store:- value {} -> {}",
-                        old_value,
-                        value // payload.value.as_ref().expect("value will be present"),
-                    ))
-                } else {
-                    Err(anyhow!(
-                        "key-value already present in store: {}, set force to true to force add it",
-                        key
-                    ))
-                }
+                Ok(format!(
+                    "kv updated in store:- value {} -> {}",
+                    old_value,
+                    value // payload.value.as_ref().expect("value will be present"),
+                ))
             }
-            None => Ok(format!(
-                "kv added to store {}: {}",
-                payload.key,
-                payload.value.as_ref().expect("value will be present")
-            )),
+            None => Ok(format!("kv added to store {}: {}", key, value)),
         }
     }
     pub async fn remove(&self, payload: &Payload, wal_needed: bool) -> Result<String> {
@@ -74,34 +63,6 @@ impl InMemoryKVStore {
                 "cannot fetch kv because it doesn't exists: {}",
                 payload.key
             )),
-        }
-    }
-    pub async fn update(&self, payload: &Payload, wal_needed: bool) -> Result<String> {
-        let mut store = self.kv_store.lock().await;
-        if wal_needed {
-            log(&self.batch, "UPDATE", "INFO", payload);
-        }
-        let key = &payload.key;
-        let value = payload
-            .value
-            .as_ref()
-            .expect("value will be always present...");
-        let update_kv = store.insert(key.clone(), value.clone());
-        match update_kv {
-            Some(val) => Ok(format!("kv updated in store: {}", val)),
-            None => {
-                if payload.force.unwrap_or(false) {
-                    Ok(format!(
-                        "kv added to store because it doesn't exists:- {}: {}",
-                        key, value
-                    ))
-                } else {
-                    Err(anyhow!(
-                        "key-value doesn't exists:- key: {}, set force to true to force create it",
-                        payload.key
-                    ))
-                }
-            }
         }
     }
 }
