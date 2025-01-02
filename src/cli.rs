@@ -11,6 +11,10 @@ pub struct Config {
     #[argh(option)]
     pub path: Option<String>,
 
+    /// ipv4 address of seed node
+    #[argh(option)]
+    pub ip: Option<String>,
+
     /// custom port for server, default is 3000
     #[argh(option)]
     pub port: Option<u32>,
