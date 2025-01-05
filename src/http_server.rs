@@ -26,6 +26,7 @@ async fn add_kv(
             Json(json!({ "status": "error", "message": "Missing required field: value" })),
         );
     }
+    // perhaps creation of this operation struct can be made as a middleware?
     let operation = Operation {
         key: payload.key,
         value: payload.value,

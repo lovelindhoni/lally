@@ -13,6 +13,7 @@ axum = "0.7.9"
 axum-macros = "0.4.2"
 chrono = "0.4.39"
 crossbeam = "0.8.4"
+dashmap = "6.1.0"
 futures = "0.3.31"
 prost = "0.13.4"
 serde = {version = "1.0.216", features = ["derive"]}

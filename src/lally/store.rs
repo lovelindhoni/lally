@@ -1,19 +1,18 @@
 use crate::types::Operation;
 use crate::utils::parse_log_line;
 use anyhow::{anyhow, Context, Result};
-use std::collections::HashMap;
+use dashmap::DashMap;
 use tokio::fs::{create_dir_all, OpenOptions};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::Mutex;
 
 pub struct Store {
-    store: Mutex<HashMap<String, String>>,
+    store: DashMap<String, String>,
 }
 
 impl Store {
     pub async fn new() -> Result<Self> {
         let store = Store {
-            store: Mutex::new(HashMap::new()),
+            store: DashMap::new(),
         };
         store.replay_logs().await?;
         Ok(store)
@@ -38,14 +37,13 @@ impl Store {
         );
 
         let mut lines = file.lines();
-        let mut acquire_store = self.store.lock().await;
 
         while let Some(line) = lines.next_line().await? {
             if let Ok(operation_data) = parse_log_line(&line) {
                 match operation_data.name.as_str() {
                     "ADD" => {
                         if let Some(value) = operation_data.value {
-                            acquire_store.insert(operation_data.key, value);
+                            self.store.insert(operation_data.key, value);
                         } else {
                             eprintln!(
                                 "Missing value for ADD operation, this should'nt be happening"
@@ -53,7 +51,7 @@ impl Store {
                         }
                     }
                     "REMOVE" => {
-                        acquire_store.remove(&operation_data.key);
+                        self.store.remove(&operation_data.key);
                     }
                     _ => eprintln!("Unknown operation: {}", operation_data.name),
                 }
@@ -65,10 +63,9 @@ impl Store {
     }
 
     pub async fn add(&self, operation: Operation) -> Result<String> {
-        let mut store = self.store.lock().await;
         let key = operation.key;
         let value = operation.value.as_ref().expect("value will be present");
-        let add_kv = store.insert(key.clone(), value.clone());
+        let add_kv = self.store.insert(key.clone(), value.clone());
         match add_kv {
             Some(old_value) => Ok(format!(
                 "kv updated in store:- value {} -> {}",
@@ -78,10 +75,9 @@ impl Store {
         }
     }
     pub async fn remove(&self, operation: Operation) -> Result<String> {
-        let mut store = self.store.lock().await;
-        let remove_kv = store.remove(&operation.key);
+        let remove_kv = self.store.remove(&operation.key);
         match remove_kv {
-            Some(removed_key) => Ok(format!("kv removed from store: key {}", removed_key)),
+            Some(removed_key) => Ok(format!("kv removed from store: key {}", removed_key.1)),
             None => Err(anyhow!(
                 "kv not removed from store because it doesn't exists: {}",
                 operation.key
@@ -90,10 +86,9 @@ impl Store {
     }
 
     pub async fn get(&self, operation: Operation) -> Result<String> {
-        let store = self.store.lock().await;
-        let get_kv = store.get(&operation.key);
+        let get_kv = self.store.get(&operation.key);
         match get_kv {
-            Some(value) => Ok(format!("kv fetched from store: {}", value)),
+            Some(value) => Ok(format!("kv fetched from store: {}", value.value())),
             None => Err(anyhow!(
                 "cannot fetch kv because it doesn't exists: {}",
                 operation.key

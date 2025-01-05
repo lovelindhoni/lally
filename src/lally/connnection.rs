@@ -2,7 +2,7 @@ use crate::cluster::membership::cluster_management_client::ClusterManagementClie
 use crate::cluster::membership::{AddNodeRequest, Empty};
 use futures::future::join_all;
 use std::collections::HashMap;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tonic::transport::Channel;
 use tonic::Request;
 
@@ -10,21 +10,21 @@ use tonic::Request;
 
 #[derive(Default)]
 pub struct Connections {
-    pub cluster: Mutex<HashMap<String, ClusterManagementClient<Channel>>>,
+    pub cluster: RwLock<HashMap<String, ClusterManagementClient<Channel>>>,
 }
 
 impl Connections {
     pub async fn get_ips(&self) -> Vec<String> {
-        let cluster = self.cluster.lock().await;
+        let cluster = self.cluster.read().await;
         cluster.keys().cloned().collect()
     }
     pub async fn remove(&self, ip: &String) {
-        let mut cluster = self.cluster.lock().await;
+        let mut cluster = self.cluster.write().await;
         cluster.remove(ip).unwrap();
     }
 
     pub async fn leave(&self) {
-        let mut pool = self.cluster.lock().await;
+        let mut pool = self.cluster.write().await;
         let leave_cluster_futures = pool
             .values_mut()
             .map(|conn| {
@@ -45,7 +45,7 @@ impl Connections {
         &self,
         addr: String,
     ) -> Result<ClusterManagementClient<Channel>, tonic::transport::Error> {
-        let mut cluster = self.cluster.lock().await;
+        let mut cluster = self.cluster.write().await;
         match cluster.get(&addr) {
             Some(node) => Ok(node.clone()),
             None => {
@@ -57,7 +57,7 @@ impl Connections {
         }
     }
     pub async fn bulk_make(&self, ip_addrs: &[String]) {
-        let mut cluster = self.cluster.lock().await;
+        let mut cluster = self.cluster.write().await;
         let conn_futures = ip_addrs.iter().map(|ip| {
             let client_url = format!("https://{}", ip);
             async move {
@@ -78,7 +78,7 @@ impl Connections {
     }
     pub async fn gossip(&self, addr: String) {
         // gossip protocol needs to be implemented
-        let mut cluster = self.cluster.lock().await;
+        let mut cluster = self.cluster.write().await;
         let gossip_results = cluster
             .values_mut()
             .map(|conn| {
