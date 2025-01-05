@@ -1,4 +1,3 @@
-use chrono::Utc;
 use crossbeam::queue::SegQueue;
 use std::sync::Arc;
 use tokio::fs::{create_dir_all, OpenOptions};
@@ -7,6 +6,7 @@ use tokio::time::{interval, Duration};
 
 use super::Hook;
 use crate::types::Operation;
+use crate::utils::LallyStamp;
 
 pub struct WriteAheadLogging {
     buffer: SegQueue<String>,
@@ -16,11 +16,12 @@ pub struct WriteAheadLogging {
 
 impl Hook for WriteAheadLogging {
     fn invoke(&self, operation: &Operation) {
-        let timestamp = Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-
         let mut operation_log = format!(
-            "time={} operation={} level={} key=\"{}\"",
-            timestamp, operation.name, operation.level, operation.key,
+            "timestamp={} operation={} level={} key=\"{}\"",
+            LallyStamp::to_rfc3339(&operation.timestamp),
+            operation.name,
+            operation.level,
+            operation.key,
         );
 
         if let Some(value) = &operation.value {

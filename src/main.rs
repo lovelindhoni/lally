@@ -1,4 +1,3 @@
-mod cli;
 mod cluster;
 mod hooks;
 mod http_server;
@@ -14,12 +13,12 @@ use tokio::fs::{canonicalize, copy, OpenOptions};
 
 #[tokio::main]
 async fn main() {
-    let conf = cli::config();
+    let lally = Lally::new().await;
     let path = "/home/lovelindhoni/dev/projects/lally/lallylog.txt";
-    if conf.fresh && conf.path.is_some() {
+    if lally.config.fresh() && lally.config.path().is_some() {
         panic!("log file is not needed when starting fresh");
     }
-    if conf.fresh {
+    if lally.config.fresh() {
         OpenOptions::new()
             .write(true)
             .create(true)
@@ -28,16 +27,15 @@ async fn main() {
             .await
             .unwrap();
     }
-    if let Some(source) = conf.path {
+    if let Some(source) = lally.config.path() {
         let canonical_source = canonicalize(source).await.unwrap();
         copy(canonical_source, path).await.unwrap();
     }
-    let port = conf.port.unwrap_or(3000);
 
-    let lally = Lally::new().await;
-    match conf.ip {
+    GrpcServer::run(Arc::clone(&lally)).await;
+    match lally.config.ip() {
         Some(ip) => {
-            lally.cluster.join(ip).await;
+            lally.cluster.join(ip.to_string()).await;
         }
         None => println!("no seed node address given, this would act as the first node of cluster"),
     };
@@ -45,8 +43,9 @@ async fn main() {
     let wal_hook = WriteAheadLogging::init().await;
     lally.hooks.register(wal_hook).await;
 
-    GrpcServer::run(Arc::clone(&lally)).await;
-    http_server::run(Arc::clone(&lally), port).await.unwrap();
+    http_server::run(Arc::clone(&lally), lally.config.port())
+        .await
+        .unwrap();
 
     // println!("Hello, world!");
 }

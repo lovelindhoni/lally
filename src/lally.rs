@@ -1,7 +1,9 @@
+pub mod config;
 pub mod connnection;
 pub mod hook;
 pub mod store;
 
+use config::Config;
 use connnection::Connections;
 use hook::Hooks;
 use std::sync::Arc;
@@ -14,6 +16,7 @@ pub struct Lally {
     pub store: Arc<Store>,
     pub hooks: Arc<Hooks>,
     pub cluster: Arc<Connections>,
+    pub config: Arc<Config>,
 }
 
 impl Lally {
@@ -22,6 +25,7 @@ impl Lally {
             store: Arc::new(Store::new().await.unwrap()),
             hooks: Arc::new(Hooks::default()),
             cluster: Arc::new(Connections::default()),
+            config: Arc::new(Config::new()),
         });
         tokio::spawn(Self::shutdown(Arc::clone(&lally)));
         lally

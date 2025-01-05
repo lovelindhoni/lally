@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package lally;
+
+import "google/protobuf/timestamp.proto";
+
+message NoContentRequest {}
+message AddNodeRequest { string ip = 1; }
+message JoinResponse {
+  string message = 1;
+  repeated string addresses = 2;
+}
+message AddNodeResponse { string message = 1; }
+message RemoveNodeResponse { string message = 1; }
+
+service ClusterManagement {
+  rpc add(AddNodeRequest) returns (AddNodeResponse);
+  rpc remove(NoContentRequest) returns (RemoveNodeResponse);
+  rpc join(NoContentRequest) returns (JoinResponse);
+}
+
+message KVOperation {
+  string name = 1;
+  string level = 2;
+  string key = 3;
+  optional string value = 4;
+  google.protobuf.Timestamp timestamp = 5;
+}
+message AddKVResponse { string message = 1; }
+message RemoveKVResponse {
+  string message = 1;
+  bool is_removed = 2;
+}
+message GetKVResponse {
+  optional string message = 1;
+  optional google.protobuf.Timestamp timestamp = 2;
+}
+
+service KVStore {
+  rpc add(KVOperation) returns (AddKVResponse);
+  rpc remove(KVOperation) returns (RemoveKVResponse);
+  rpc get(KVOperation) returns (GetKVResponse);
+}

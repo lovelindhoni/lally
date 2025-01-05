@@ -1,12 +1,13 @@
 use crate::types::Operation;
-use crate::utils::parse_log_line;
+use crate::utils::{parse_log_line, KVGetResult};
 use anyhow::{anyhow, Context, Result};
 use dashmap::DashMap;
+use prost_types::Timestamp;
 use tokio::fs::{create_dir_all, OpenOptions};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 pub struct Store {
-    store: DashMap<String, String>,
+    store: DashMap<String, (String, Timestamp, bool)>,
 }
 
 impl Store {
@@ -39,11 +40,12 @@ impl Store {
         let mut lines = file.lines();
 
         while let Some(line) = lines.next_line().await? {
-            if let Ok(operation_data) = parse_log_line(&line) {
-                match operation_data.name.as_str() {
+            if let Ok(operation) = parse_log_line(&line) {
+                match operation.name.as_str() {
                     "ADD" => {
-                        if let Some(value) = operation_data.value {
-                            self.store.insert(operation_data.key, value);
+                        if let Some(value) = operation.value {
+                            self.store
+                                .insert(operation.key, (value, operation.timestamp, true));
                         } else {
                             eprintln!(
                                 "Missing value for ADD operation, this shouldn't be happening"
@@ -51,9 +53,9 @@ impl Store {
                         }
                     }
                     "REMOVE" => {
-                        self.store.remove(&operation_data.key);
+                        self.store.remove(&operation.key);
                     }
-                    _ => eprintln!("Unknown operation: {}", operation_data.name),
+                    _ => eprintln!("Unknown operation: {}", operation.name),
                 }
             } else if !line.trim().is_empty() {
                 eprintln!("Failed to parse log: {}", line);
@@ -62,37 +64,62 @@ impl Store {
         Ok(())
     }
 
-    pub async fn add(&self, operation: Operation) -> Result<String> {
-        let key = operation.key;
+    pub fn add(&self, operation: &Operation) -> Result<String> {
+        let key = &operation.key;
+        let timestamp = operation.timestamp;
         let value = operation.value.as_ref().expect("value will be present");
-        let add_kv = self.store.insert(key.clone(), value.clone());
+        let add_kv = self
+            .store
+            .insert(key.clone(), (value.clone(), timestamp, true));
         match add_kv {
             Some(old_value) => Ok(format!(
-                "kv updated in store:- value {} -> {}",
-                old_value, value
+                "kv added to store:- value {} -> {}",
+                old_value.0, value
             )),
-            None => Ok(format!("kv added to store {}: {}", key, value)),
+            None => Ok(format!("kv added to store {}: {}", key.clone(), value)),
         }
     }
-    pub async fn remove(&self, operation: Operation) -> Result<String> {
-        let remove_kv = self.store.remove(&operation.key);
-        match remove_kv {
-            Some(removed_key) => Ok(format!("kv removed from store: key {}", removed_key.1)),
-            None => Err(anyhow!(
+    pub fn remove(&self, operation: &Operation) -> Result<String> {
+        let remove_kv = self.store.get_mut(&operation.key);
+        if let Some(mut value) = remove_kv {
+            if !value.2 {
+                Err(anyhow!(
+                    "kv not removed from store because it doesn't exists: {}",
+                    operation.key
+                ))
+            } else {
+                value.1 = operation.timestamp;
+                value.2 = false;
+                Ok(format!("kv removed from store: key {}", value.0))
+            }
+        } else {
+            Err(anyhow!(
                 "kv not removed from store because it doesn't exists: {}",
                 operation.key
-            )),
+            ))
         }
     }
 
-    pub async fn get(&self, operation: Operation) -> Result<String> {
+    pub fn get(&self, operation: &Operation) -> KVGetResult {
         let get_kv = self.store.get(&operation.key);
         match get_kv {
-            Some(value) => Ok(format!("kv fetched from store: {}", value.value())),
-            None => Err(anyhow!(
-                "cannot fetch kv because it doesn't exists: {}",
-                operation.key
-            )),
+            Some(value) => {
+                if !value.2 {
+                    KVGetResult {
+                        message: None,
+                        timestamp: Some(value.1),
+                    }
+                } else {
+                    KVGetResult {
+                        message: Some(value.0.clone()),
+                        timestamp: Some(value.1),
+                    }
+                }
+            }
+            None => KVGetResult {
+                message: None,
+                timestamp: None,
+            },
         }
     }
 }
