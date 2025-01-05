@@ -4,6 +4,10 @@ use std::collections::HashMap;
 use crate::types::Operation;
 
 pub fn parse_log_line(line: &str) -> Result<Operation> {
+    if line.trim().is_empty() {
+        return Err(anyhow::anyhow!("Empty line"));
+    }
+
     let pairs: HashMap<String, String> = line
         .split_whitespace()
         .filter_map(|part| part.split_once('='))

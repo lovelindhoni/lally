@@ -46,7 +46,7 @@ impl Store {
                             self.store.insert(operation_data.key, value);
                         } else {
                             eprintln!(
-                                "Missing value for ADD operation, this should'nt be happening"
+                                "Missing value for ADD operation, this shouldn't be happening"
                             );
                         }
                     }
@@ -55,7 +55,7 @@ impl Store {
                     }
                     _ => eprintln!("Unknown operation: {}", operation_data.name),
                 }
-            } else {
+            } else if !line.trim().is_empty() {
                 eprintln!("Failed to parse log: {}", line);
             }
         }
