@@ -1,17 +1,16 @@
-use crate::cluster::lally_services::GetKvResponse;
+use crate::cluster::services::GetKvResponse;
+use crate::config::Config;
 use crate::lally::Lally;
 use crate::types::Operation;
-use crate::utils::LallyStamp;
+use crate::utils::{compare_timestamps, LallyStamp};
 use anyhow::Result;
 use axum::extract::{Json, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, post};
 use axum::Router;
-use prost_types::Timestamp;
 use serde::Deserialize;
 use serde_json::json;
-use std::cmp::Ordering;
 use std::sync::Arc;
 
 #[derive(Deserialize)]
@@ -31,7 +30,7 @@ fn build_operation(payload: &Payload, operation_type: &str) -> Operation {
 }
 
 async fn add_kv(
-    State(lally): State<Arc<Lally>>,
+    State(state): State<Arc<SharedState>>,
     Json(payload): Json<Payload>,
 ) -> impl IntoResponse {
     if payload.value.is_none() {
@@ -41,11 +40,14 @@ async fn add_kv(
         );
     }
     let operation = build_operation(&payload, "ADD");
-    lally.hooks.invoke_all(&operation).await;
-    let response = lally.store.add(&operation).unwrap();
-    let needed_quorum_votes = lally.config.write_quorum() - 1;
-    let (cluster_responses, is_quorum_achieved) =
-        lally.cluster.add_kv(&operation, needed_quorum_votes).await;
+    state.lally.hooks.invoke_all(&operation).await;
+    let response = state.lally.store.add(&operation).unwrap();
+    let needed_quorum_votes = state.config.write_quorum() - 1;
+    let (cluster_responses, is_quorum_achieved) = state
+        .lally
+        .cluster
+        .add_kv(&operation, needed_quorum_votes)
+        .await;
     let quorom_state = if is_quorum_achieved {
         "success"
     } else {
@@ -61,21 +63,18 @@ async fn add_kv(
     )
 }
 
-fn compare_timestamps(a: &Timestamp, b: &Timestamp) -> Ordering {
-    let a_nanos = a.seconds as i128 * 1_000_000_000 + a.nanos as i128;
-    let b_nanos = b.seconds as i128 * 1_000_000_000 + b.nanos as i128;
-    a_nanos.cmp(&b_nanos)
-}
-
 async fn get_kv(
-    State(lally): State<Arc<Lally>>,
+    State(state): State<Arc<SharedState>>,
     Json(payload): Json<Payload>,
 ) -> impl IntoResponse {
     let operation = build_operation(&payload, "GET");
-    let needed_quorum_votes = lally.config.read_quorum() - 1;
-    let get_op = lally.store.get(&operation);
-    let (mut cluster_responses, is_quorum_achieved) =
-        lally.cluster.get_kv(&operation, needed_quorum_votes).await;
+    let needed_quorum_votes = state.config.read_quorum() - 1;
+    let get_op = state.lally.store.get(&operation);
+    let (mut cluster_responses, is_quorum_achieved) = state
+        .lally
+        .cluster
+        .get_kv(&operation, needed_quorum_votes)
+        .await;
     let get_op_converted = GetKvResponse {
         message: get_op.message,
         timestamp: get_op.timestamp,
@@ -125,7 +124,7 @@ async fn get_kv(
                 };
                 match &latest_response.message {
                     Some(_msg) => {
-                        let lally_clone = Arc::clone(&lally);
+                        let lally_clone = Arc::clone(&state.lally);
                         let ip = ip.clone();
                         tokio::spawn(async move {
                             if ip == "local" {
@@ -140,7 +139,7 @@ async fn get_kv(
                         });
                     }
                     None => {
-                        let lally_clone = Arc::clone(&lally);
+                        let lally_clone = Arc::clone(&state.lally);
                         let ip = ip.clone();
                         tokio::spawn(async move {
                             if ip == "local" {
@@ -171,18 +170,19 @@ async fn get_kv(
 }
 
 async fn remove_kv(
-    State(lally): State<Arc<Lally>>,
+    State(state): State<Arc<SharedState>>,
     Json(payload): Json<Payload>,
 ) -> impl IntoResponse {
     let operation = build_operation(&payload, "REMOVE");
-    lally.hooks.invoke_all(&operation).await;
-    let mut is_removed = match lally.store.remove(&operation) {
+    state.lally.hooks.invoke_all(&operation).await;
+    let mut is_removed = match state.lally.store.remove(&operation) {
         Ok(_response) => true,
         Err(_e) => false,
     };
-    let needed_quorum_votes = lally.config.write_quorum() - 1;
+    let needed_quorum_votes = state.config.write_quorum() - 1;
     println!("quorum needed, {}", needed_quorum_votes);
-    let (cluster_responses, is_quorum_achieved) = lally
+    let (cluster_responses, is_quorum_achieved) = state
+        .lally
         .cluster
         .remove_kv(&operation, needed_quorum_votes)
         .await;
@@ -220,17 +220,23 @@ async fn greet() -> &'static str {
     "Hello World! from lally"
 }
 
-pub async fn run(lally: Arc<Lally>, port: u32) -> Result<()> {
+#[derive(Clone)]
+struct SharedState {
+    pub lally: Arc<Lally>,
+    pub config: Config,
+}
+pub async fn run(lally: Arc<Lally>, config: Config) -> Result<()> {
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", config.port())).await?;
+    println!("lally started at 0.0.0.0:{}...", config.port());
+
+    let state = Arc::new(SharedState { lally, config });
     let app = Router::new()
         .route("/", get(greet))
         .route("/get", post(get_kv))
         .route("/add", post(add_kv))
         .route("/remove", delete(remove_kv))
-        .with_state(lally);
+        .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
-
-    println!("lally started at 0.0.0.0:{}...", port);
     axum::serve(listener, app).await?;
     Ok(())
 }

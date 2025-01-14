@@ -1,9 +1,8 @@
-pub mod config;
 pub mod connnection;
 pub mod hook;
 pub mod store;
 
-use config::Config;
+use crate::config::Config;
 use connnection::Connections;
 use hook::Hooks;
 use std::sync::Arc;
@@ -16,16 +15,14 @@ pub struct Lally {
     pub store: Arc<Store>,
     pub hooks: Arc<Hooks>,
     pub cluster: Arc<Connections>,
-    pub config: Arc<Config>,
 }
 
 impl Lally {
-    pub async fn new() -> Arc<Self> {
+    pub async fn new(config: &Config) -> Arc<Self> {
         let lally = Arc::new(Lally {
-            store: Arc::new(Store::new().await.unwrap()),
+            store: Arc::new(Store::new(config.log_path()).await.unwrap()),
             hooks: Arc::new(Hooks::default()),
             cluster: Arc::new(Connections::default()),
-            config: Arc::new(Config::new()),
         });
         tokio::spawn(Self::shutdown(Arc::clone(&lally)));
         lally

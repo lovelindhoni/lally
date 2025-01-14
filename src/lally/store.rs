@@ -1,9 +1,13 @@
+use std::path::Path;
+
+use crate::cluster::services::KvData;
 use crate::types::Operation;
-use crate::utils::{parse_log_line, KVGetResult};
+use crate::utils::{compare_timestamps, parse_log_line, KVGetResult};
 use anyhow::{anyhow, Context, Result};
 use dashmap::DashMap;
 use prost_types::Timestamp;
-use tokio::fs::{create_dir_all, OpenOptions};
+use std::cmp::Ordering;
+use tokio::fs::OpenOptions;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 pub struct Store {
@@ -11,27 +15,21 @@ pub struct Store {
 }
 
 impl Store {
-    pub async fn new() -> Result<Self> {
+    pub async fn new(log_path: &Path) -> Result<Self> {
         let store = Store {
             store: DashMap::new(),
         };
-        store.replay_logs().await?;
+        store.replay_logs(log_path).await?;
         Ok(store)
     }
-    async fn replay_logs(&self) -> Result<()> {
-        // the path would be passed from a config
-        let path = String::from("/home/lovelindhoni/dev/projects/lally/lallylog.txt");
-        create_dir_all("/home/lovelindhoni/dev/projects/lally")
-            .await
-            .context("Failed to create WAL directory")?;
-
+    async fn replay_logs(&self, log_path: &Path) -> Result<()> {
         let file = BufReader::new(
             OpenOptions::new()
                 .read(true)
                 .write(true)
                 .create(true)
                 .truncate(false)
-                .open(path)
+                .open(log_path)
                 .await
                 .context("Failed to open log file")
                 .unwrap(),
@@ -62,6 +60,35 @@ impl Store {
             }
         }
         Ok(())
+    }
+
+    pub fn export_store(&self) -> Vec<KvData> {
+        let mut result = Vec::new();
+        for entry in self.store.iter() {
+            let value = entry.value().clone();
+            let temp = KvData {
+                key: entry.key().clone(),
+                value: value.0,
+                timestamp: Some(value.1),
+                valid: value.2,
+            };
+            result.push(temp);
+        }
+        result
+    }
+
+    pub fn import_store(&self, store: Vec<KvData>) {
+        for data in store {
+            let new_value = (data.value, data.timestamp.unwrap(), data.valid);
+            self.store
+                .entry(data.key)
+                .and_modify(|existing_value| {
+                    if compare_timestamps(&new_value.1, &existing_value.1) == Ordering::Greater {
+                        *existing_value = new_value.clone();
+                    }
+                })
+                .or_insert(new_value);
+        }
     }
 
     pub fn add(&self, operation: &Operation) -> Result<String> {

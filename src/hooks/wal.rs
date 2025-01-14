@@ -1,17 +1,19 @@
 use crossbeam::queue::SegQueue;
+use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::fs::{create_dir_all, OpenOptions};
+use tokio::fs::OpenOptions;
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::time::{interval, Duration};
 
 use super::Hook;
+use crate::config::Config;
 use crate::types::Operation;
 use crate::utils::LallyStamp;
 
 pub struct WriteAheadLogging {
     buffer: SegQueue<String>,
     flush_interval: Duration,
-    path: String,
+    path: PathBuf,
 }
 
 impl Hook for WriteAheadLogging {
@@ -33,7 +35,7 @@ impl Hook for WriteAheadLogging {
 }
 
 impl WriteAheadLogging {
-    fn new(path: String, flush_interval: Duration) -> Self {
+    fn new(path: PathBuf, flush_interval: Duration) -> Self {
         WriteAheadLogging {
             buffer: SegQueue::new(),
             flush_interval,
@@ -47,7 +49,7 @@ impl WriteAheadLogging {
                 .append(true)
                 .create(true)
                 .truncate(false)
-                .open(wal.path.clone())
+                .open(&wal.path)
                 .await
                 .expect("Failed to open WAL file"),
         );
@@ -71,16 +73,15 @@ impl WriteAheadLogging {
         }
     }
 
-    pub async fn init() -> Arc<Self> {
+    pub async fn init(config: &Config) -> Arc<Self> {
         // from config rn
-        let path = String::from("/home/lovelindhoni/dev/projects/lally/lallylog.txt");
-        create_dir_all("/home/lovelindhoni/dev/projects/lally")
-            .await
-            .expect("Failed to create WAL directory");
 
         let flush_interval = Duration::from_millis(100);
 
-        let wal = Arc::new(WriteAheadLogging::new(path.clone(), flush_interval));
+        let wal = Arc::new(WriteAheadLogging::new(
+            config.log_path().to_path_buf(),
+            flush_interval,
+        ));
 
         // i might move this to a seperate task manager like thing
         tokio::spawn(Self::flush_logs(Arc::clone(&wal)));

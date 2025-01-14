@@ -1,9 +1,9 @@
+use crate::types::Operation;
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone, Utc};
 use prost_types::Timestamp;
+use std::cmp::Ordering;
 use std::collections::HashMap;
-
-use crate::types::Operation;
 
 pub fn parse_log_line(line: &str) -> Result<Operation> {
     if line.trim().is_empty() {
@@ -76,13 +76,8 @@ pub struct KVGetResult {
     pub timestamp: Option<Timestamp>,
 }
 
-// impl Ord for Timestamp {
-//     fn cmp(&self, other: &Self) -> Ordering {
-//         match self.seconds.cmp(&other.seconds) {
-//             Ordering::Equal => self.nanos.cmp(&other.nanos),
-//             other => other,
-//         }
-//     }
-// }
-//
-// impl Eq for Timestamp {}
+pub fn compare_timestamps(a: &Timestamp, b: &Timestamp) -> Ordering {
+    let a_nanos = a.seconds as i128 * 1_000_000_000 + a.nanos as i128;
+    let b_nanos = b.seconds as i128 * 1_000_000_000 + b.nanos as i128;
+    a_nanos.cmp(&b_nanos)
+}

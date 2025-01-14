@@ -4,11 +4,19 @@ package lally;
 
 import "google/protobuf/timestamp.proto";
 
+message KVData {
+  string key = 1;
+  string value = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  bool valid = 4;
+}
+
 message NoContentRequest {}
 message AddNodeRequest { string ip = 1; }
 message JoinResponse {
   string message = 1;
   repeated string addresses = 2;
+  repeated KVData storeData = 3;
 }
 message AddNodeResponse { string message = 1; }
 message RemoveNodeResponse { string message = 1; }
