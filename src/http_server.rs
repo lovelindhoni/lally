@@ -1,7 +1,7 @@
 use crate::cluster::services::GetKvResponse;
 use crate::config::Config;
 use crate::lally::Lally;
-use crate::types::Operation;
+use crate::utils::Operation;
 use crate::utils::{compare_timestamps, LallyStamp};
 use anyhow::Result;
 use axum::extract::{Json, State};

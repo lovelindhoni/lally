@@ -3,7 +3,7 @@ pub mod services {
 }
 
 use crate::lally::Lally;
-use crate::types::Operation;
+use crate::utils::Operation;
 use services::cluster_management_server::{ClusterManagement, ClusterManagementServer};
 use services::kv_store_server::{KvStore, KvStoreServer};
 use services::{

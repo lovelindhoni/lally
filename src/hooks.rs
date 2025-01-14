@@ -1,4 +1,4 @@
-use crate::types::Operation;
+use crate::utils::Operation;
 pub mod wal;
 
 pub trait Hook: Send + Sync {

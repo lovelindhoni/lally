@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::cluster::services::KvData;
-use crate::types::Operation;
+use crate::utils::Operation;
 use crate::utils::{compare_timestamps, parse_log_line, KVGetResult};
 use anyhow::{anyhow, Context, Result};
 use dashmap::DashMap;

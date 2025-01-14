@@ -4,7 +4,7 @@ use crate::cluster::services::{
     AddKvResponse, AddNodeRequest, GetKvResponse, KvData, KvOperation, NoContentRequest,
     RemoveKvResponse,
 };
-use crate::types::Operation;
+use crate::utils::Operation;
 use futures::future::join_all;
 use std::collections::HashMap;
 use std::sync::Arc;

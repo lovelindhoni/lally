@@ -7,8 +7,8 @@ use tokio::time::{interval, Duration};
 
 use super::Hook;
 use crate::config::Config;
-use crate::types::Operation;
 use crate::utils::LallyStamp;
+use crate::utils::Operation;
 
 pub struct WriteAheadLogging {
     buffer: SegQueue<String>,

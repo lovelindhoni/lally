@@ -1,5 +1,5 @@
 use crate::hooks::Hook;
-use crate::types::Operation;
+use crate::utils::Operation;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 

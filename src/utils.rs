@@ -1,4 +1,3 @@
-use crate::types::Operation;
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone, Utc};
 use prost_types::Timestamp;
@@ -69,6 +68,14 @@ impl LallyStamp {
             .expect("Invalid timestamp");
         naive.to_rfc3339()
     }
+}
+
+pub struct Operation {
+    pub name: String,
+    pub level: String,
+    pub key: String,
+    pub value: Option<String>,
+    pub timestamp: Timestamp,
 }
 
 pub struct KVGetResult {
