@@ -10,13 +10,13 @@ use crate::config::Config;
 use crate::utils::LallyStamp;
 use crate::utils::Operation;
 
-pub struct WriteAheadLogging {
+pub struct AppendOnlyLog {
     buffer: SegQueue<String>,
     flush_interval: Duration,
     path: PathBuf,
 }
 
-impl Hook for WriteAheadLogging {
+impl Hook for AppendOnlyLog {
     fn invoke(&self, operation: &Operation) {
         let mut operation_log = format!(
             "timestamp={} operation={} level={} key=\"{}\"",
@@ -34,9 +34,9 @@ impl Hook for WriteAheadLogging {
     }
 }
 
-impl WriteAheadLogging {
+impl AppendOnlyLog {
     fn new(path: PathBuf, flush_interval: Duration) -> Self {
-        WriteAheadLogging {
+        AppendOnlyLog {
             buffer: SegQueue::new(),
             flush_interval,
             path,
@@ -78,7 +78,7 @@ impl WriteAheadLogging {
 
         let flush_interval = Duration::from_millis(100);
 
-        let wal = Arc::new(WriteAheadLogging::new(
+        let wal = Arc::new(AppendOnlyLog::new(
             config.aof_file().to_path_buf(),
             flush_interval,
         ));

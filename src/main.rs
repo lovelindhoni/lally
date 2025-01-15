@@ -7,7 +7,7 @@ mod utils;
 
 use crate::cluster::GrpcServer;
 use crate::config::Config;
-use crate::hooks::wal::WriteAheadLogging;
+use crate::hooks::aof::AppendOnlyLog;
 use crate::lally::Lally;
 use std::sync::Arc;
 
@@ -27,7 +27,7 @@ async fn main() {
         None => println!("no seed node address given, this would act as the first node of cluster"),
     };
 
-    let wal_hook = WriteAheadLogging::init(&config).await;
+    let wal_hook = AppendOnlyLog::init(&config).await;
     lally.hooks.register(wal_hook).await;
 
     http_server::run(Arc::clone(&lally), config).await.unwrap();
