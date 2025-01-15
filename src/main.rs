@@ -14,13 +14,15 @@ use std::sync::Arc;
 #[tokio::main]
 async fn main() {
     let config = Config::new().await.unwrap();
-    let lally = Lally::new(&config).await;
+    let lally = Lally::new(&config).await.unwrap();
 
     GrpcServer::run(Arc::clone(&lally)).await;
     match config.ip() {
         Some(ip) => {
-            let store_data = lally.cluster.join(ip.to_string()).await;
-            lally.store.import_store(store_data);
+            let join_response = lally.cluster.join(ip.to_string()).await;
+            if let Ok(store_data) = join_response {
+                lally.store.import_store(store_data);
+            }
         }
         None => println!("no seed node address given, this would act as the first node of cluster"),
     };

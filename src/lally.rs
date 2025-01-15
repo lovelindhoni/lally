@@ -3,6 +3,7 @@ pub mod hook;
 pub mod store;
 
 use crate::config::Config;
+use anyhow::Result;
 use connnection::Connections;
 use hook::Hooks;
 use std::sync::Arc;
@@ -18,14 +19,14 @@ pub struct Lally {
 }
 
 impl Lally {
-    pub async fn new(config: &Config) -> Arc<Self> {
+    pub async fn new(config: &Config) -> Result<Arc<Self>> {
         let lally = Arc::new(Lally {
-            store: Arc::new(Store::new(config.log_path()).await.unwrap()),
+            store: Arc::new(Store::new(config.aof_file()).await?),
             hooks: Arc::new(Hooks::default()),
             cluster: Arc::new(Connections::default()),
         });
         tokio::spawn(Self::shutdown(Arc::clone(&lally)));
-        lally
+        Ok(lally)
     }
 
     // i might just move this shutdown logic to a seperate task manager like module

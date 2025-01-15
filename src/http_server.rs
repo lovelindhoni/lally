@@ -41,7 +41,10 @@ async fn add_kv(
     }
     let operation = build_operation(&payload, "ADD");
     state.lally.hooks.invoke_all(&operation).await;
-    let response = state.lally.store.add(&operation).unwrap();
+    let response = state.lally.store.add(&operation);
+    let response_timestamp = response
+        .timestamp
+        .expect("timestamp will be present for ADD operation");
     let needed_quorum_votes = state.config.write_quorum() - 1;
     let (cluster_responses, is_quorum_achieved) = state
         .lally
@@ -58,7 +61,7 @@ async fn add_kv(
         StatusCode::OK,
         // i might return the no of quorum votes too
         Json(
-            json!({ "status": quorom_state, "data": response, "timestamp":  LallyStamp::to_rfc3339(&operation.timestamp) }),
+            json!({ "status": quorom_state, "data": response.message, "timestamp":  LallyStamp::to_rfc3339(&response_timestamp) }),
         ),
     )
 }
@@ -76,7 +79,7 @@ async fn get_kv(
         .get_kv(&operation, needed_quorum_votes)
         .await;
     let get_op_converted = GetKvResponse {
-        message: get_op.message,
+        value: get_op.value,
         timestamp: get_op.timestamp,
     };
     cluster_responses.push(("local".to_string(), get_op_converted));
@@ -113,8 +116,8 @@ async fn get_kv(
                 }
                 let read_repair_operation = Operation {
                     key: operation.key.to_string(),
-                    value: latest_response.message.clone(),
-                    name: String::from(if latest_response.message.is_some() {
+                    value: latest_response.value.clone(),
+                    name: String::from(if latest_response.value.is_some() {
                         "ADD"
                     } else {
                         "REMOVE"
@@ -122,7 +125,7 @@ async fn get_kv(
                     timestamp: latest_timestamp,
                     level: String::from("INFO"),
                 };
-                match &latest_response.message {
+                match &latest_response.value {
                     Some(_msg) => {
                         let lally_clone = Arc::clone(&state.lally);
                         let ip = ip.clone();
@@ -155,7 +158,7 @@ async fn get_kv(
                     }
                 }
             }
-            if let Some(message) = &latest_response.message {
+            if let Some(message) = &latest_response.value {
                 return (
                     StatusCode::OK,
                     Json(json!({ "status": quorom_state, "data": message })),
@@ -175,10 +178,7 @@ async fn remove_kv(
 ) -> impl IntoResponse {
     let operation = build_operation(&payload, "REMOVE");
     state.lally.hooks.invoke_all(&operation).await;
-    let mut is_removed = match state.lally.store.remove(&operation) {
-        Ok(_response) => true,
-        Err(_e) => false,
-    };
+    let remove_response = state.lally.store.remove(&operation);
     let needed_quorum_votes = state.config.write_quorum() - 1;
     println!("quorum needed, {}", needed_quorum_votes);
     let (cluster_responses, is_quorum_achieved) = state
@@ -191,6 +191,7 @@ async fn remove_kv(
     } else {
         "partial"
     };
+    let mut is_removed = remove_response.success;
     println!("{:?}", cluster_responses);
     if !is_removed {
         for response in cluster_responses {
@@ -211,7 +212,11 @@ async fn remove_kv(
     (
         StatusCode::OK,
         Json(
-            json!({ "status": quorom_state, "data": response, "timestamp":  LallyStamp::to_rfc3339(&operation.timestamp) }),
+            json!({ "status": quorom_state, "data": response, "timestamp": if is_removed {
+                Some(LallyStamp::to_rfc3339(&operation.timestamp))
+            } else {
+                None
+            }}),
         ),
     )
 }

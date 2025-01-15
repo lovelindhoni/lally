@@ -48,18 +48,18 @@ impl GrpcServer {
 impl KvStore for GrpcServer {
     async fn get(&self, request: Request<KvOperation>) -> Result<Response<GetKvResponse>, Status> {
         let operation = convert_to_operation(request.into_inner());
-        let temp = self.lally.store.get(&operation);
+        let get_response = self.lally.store.get(&operation);
         Ok(Response::new(GetKvResponse {
-            message: temp.message,
-            timestamp: temp.timestamp,
+            value: get_response.value,
+            timestamp: get_response.timestamp,
         }))
     }
     async fn add(&self, request: Request<KvOperation>) -> Result<Response<AddKvResponse>, Status> {
         let operation = convert_to_operation(request.into_inner());
         self.lally.hooks.invoke_all(&operation).await;
-        let _ = self.lally.store.add(&operation);
+        let _add_response = self.lally.store.add(&operation);
         Ok(Response::new(AddKvResponse {
-            message: "Yooooo".to_string(),
+            message: "key-value pair added".to_string(),
         }))
     }
     async fn remove(
@@ -68,14 +68,17 @@ impl KvStore for GrpcServer {
     ) -> Result<Response<RemoveKvResponse>, Status> {
         let operation = convert_to_operation(request.into_inner());
         self.lally.hooks.invoke_all(&operation).await;
-        let is_removed = match self.lally.store.remove(&operation) {
-            Ok(_response) => true,
-            Err(_e) => false,
-        };
-        Ok(Response::new(RemoveKvResponse {
-            message: "Yooooo".to_string(),
-            is_removed,
-        }))
+        let remove_response = self.lally.store.remove(&operation);
+        if remove_response.success {
+            Ok(Response::new(RemoveKvResponse {
+                message: "key-value pair removed".to_string(),
+                is_removed: remove_response.success,
+            }))
+        } else {
+            Err(Status::invalid_argument(
+                "Failed to remove kv because it doesn't exists",
+            ))
+        }
     }
 }
 
@@ -85,20 +88,29 @@ impl ClusterManagement for GrpcServer {
         &self,
         request: Request<NoContentRequest>,
     ) -> Result<Response<JoinResponse>, Status> {
-        let mut client_addr = request.remote_addr().unwrap();
-        client_addr.set_port(50071);
-        println!("{}", client_addr.to_string());
-        self.lally.cluster.gossip(client_addr.to_string()).await;
+        let mut client_addr = request.remote_addr().unwrap(); // might want to do ths differently
+        client_addr.set_port(50071); // Ensure we set the port to the fixed one for this service
+        let client_addr_str = client_addr.to_string();
+        println!("{}", client_addr_str);
+
+        self.lally.cluster.gossip(client_addr_str.clone()).await;
+
         let server_nodes_ip: Vec<String> = self.lally.cluster.get_ips().await;
         let store_data = self.lally.store.export_store();
+
         self.lally
             .cluster
-            .conn_make(&client_addr.to_string())
+            .conn_make(&client_addr_str)
             .await
-            .unwrap();
+            .map_err(|e| {
+                eprintln!("Failed to connect to {}: {}", client_addr_str, e);
+                Status::invalid_argument(format!("Failed to connect to client: {}", e))
+            })?;
+
         println!("{}", client_addr);
+
         Ok(Response::new(JoinResponse {
-            message: "Joined".to_string(),
+            message: "Joined successfully".to_string(),
             addresses: server_nodes_ip,
             store_data,
         }))
@@ -108,26 +120,37 @@ impl ClusterManagement for GrpcServer {
         request: Request<NoContentRequest>,
     ) -> Result<Response<RemoveNodeResponse>, Status> {
         let mut client_ip = request.remote_addr().unwrap();
-        client_ip.set_port(50071);
+        client_ip.set_port(50071); // Set port to the fixed one for this service
         let client_ip = client_ip.to_string();
-        self.lally.cluster.remove(&client_ip).await;
+
+        // Try to remove the node and handle any errors
+        self.lally.cluster.remove(&client_ip).await.map_err(|err| {
+            eprintln!("Failed to remove node {}: {}", client_ip, err);
+            Status::internal(format!("Failed to remove node: {}", err))
+        })?;
+
         Ok(Response::new(RemoveNodeResponse {
-            message: "Removed Node".to_string(),
+            message: "Node removed successfully".to_string(),
         }))
     }
+
     async fn add(
         &self,
         request: Request<AddNodeRequest>,
     ) -> Result<Response<AddNodeResponse>, Status> {
         let new_commer = request.into_inner().ip;
-        if let Err(e) = self.lally.cluster.conn_make(&new_commer).await {
-            Ok(Response::new(AddNodeResponse {
-                message: e.to_string(),
-            }))
-        } else {
-            Ok(Response::new(AddNodeResponse {
-                message: "added".to_string(),
-            }))
-        }
+
+        self.lally
+            .cluster
+            .conn_make(&new_commer)
+            .await
+            .map_err(|e| {
+                eprintln!("Failed to add node {}: {}", new_commer, e);
+                Status::invalid_argument(format!("Failed to add node: {}", e))
+            })?;
+
+        Ok(Response::new(AddNodeResponse {
+            message: "Node added successfully".to_string(),
+        }))
     }
 }

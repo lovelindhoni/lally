@@ -40,7 +40,7 @@ message RemoveKVResponse {
   bool is_removed = 2;
 }
 message GetKVResponse {
-  optional string message = 1;
+  optional string value = 1;
   optional google.protobuf.Timestamp timestamp = 2;
 }
 

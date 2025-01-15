@@ -39,7 +39,7 @@ pub fn parse_log_line(line: &str) -> Result<Operation> {
         key,
         value,
         level,
-        timestamp: LallyStamp::from(timestamp)?,
+        timestamp: LallyStamp::from_rfc3339(timestamp)?,
     })
 }
 
@@ -53,7 +53,7 @@ impl LallyStamp {
             nanos: now.timestamp_subsec_nanos() as i32,
         }
     }
-    pub fn from(rfc3339: &str) -> Result<Timestamp, chrono::ParseError> {
+    pub fn from_rfc3339(rfc3339: &str) -> Result<Timestamp, chrono::ParseError> {
         let datetime = DateTime::parse_from_rfc3339(rfc3339)?;
         let datetime_utc = datetime.with_timezone(&Utc);
         Ok(Timestamp {
@@ -78,8 +78,10 @@ pub struct Operation {
     pub timestamp: Timestamp,
 }
 
-pub struct KVGetResult {
-    pub message: Option<String>,
+pub struct KVResult {
+    pub message: String,
+    pub success: bool,
+    pub value: Option<String>, // Used for `get` operation
     pub timestamp: Option<Timestamp>,
 }
 

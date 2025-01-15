@@ -2,8 +2,8 @@ use std::path::Path;
 
 use crate::cluster::services::KvData;
 use crate::utils::Operation;
-use crate::utils::{compare_timestamps, parse_log_line, KVGetResult};
-use anyhow::{anyhow, Context, Result};
+use crate::utils::{compare_timestamps, parse_log_line, KVResult};
+use anyhow::{Context, Result};
 use dashmap::DashMap;
 use prost_types::Timestamp;
 use std::cmp::Ordering;
@@ -19,10 +19,13 @@ impl Store {
         let store = Store {
             store: DashMap::new(),
         };
-        store.replay_logs(log_path).await?;
+        store
+            .replay_aof(log_path)
+            .await
+            .context("Error at replaying aof")?;
         Ok(store)
     }
-    async fn replay_logs(&self, log_path: &Path) -> Result<()> {
+    async fn replay_aof(&self, log_path: &Path) -> Result<()> {
         let file = BufReader::new(
             OpenOptions::new()
                 .read(true)
@@ -31,8 +34,7 @@ impl Store {
                 .truncate(false)
                 .open(log_path)
                 .await
-                .context("Failed to open log file")
-                .unwrap(),
+                .context("Failed to open log file")?,
         );
 
         let mut lines = file.lines();
@@ -91,60 +93,94 @@ impl Store {
         }
     }
 
-    pub fn add(&self, operation: &Operation) -> Result<String> {
+    // TODO: in case of concurrent writes, we might need to ensure that the ADD/REMOVE operation
+    // timestamp is lower than the key value pair that is being operated
+
+    pub fn add(&self, operation: &Operation) -> KVResult {
         let key = &operation.key;
         let timestamp = operation.timestamp;
         let value = operation.value.as_ref().expect("value will be present");
+
         let add_kv = self
             .store
             .insert(key.clone(), (value.clone(), timestamp, true));
-        match add_kv {
-            Some(old_value) => Ok(format!(
-                "kv added to store:- value {} -> {}",
-                old_value.0, value
-            )),
-            None => Ok(format!("kv added to store {}: {}", key.clone(), value)),
-        }
-    }
-    pub fn remove(&self, operation: &Operation) -> Result<String> {
-        let remove_kv = self.store.get_mut(&operation.key);
-        if let Some(mut value) = remove_kv {
-            if !value.2 {
-                Err(anyhow!(
-                    "kv not removed from store because it doesn't exists: {}",
-                    operation.key
-                ))
-            } else {
-                value.1 = operation.timestamp;
-                value.2 = false;
-                Ok(format!("kv removed from store: key {}", value.0))
-            }
-        } else {
-            Err(anyhow!(
-                "kv not removed from store because it doesn't exists: {}",
-                operation.key
-            ))
+
+        let message = match add_kv {
+            Some(old_value) => format!("kv added to store: value {} -> {}", old_value.0, value),
+            None => format!("kv added to store: {} -> {}", key, value),
+        };
+        KVResult {
+            message,
+            success: true,
+            value: None, // `add` doesn't return a value
+            timestamp: Some(timestamp),
         }
     }
 
-    pub fn get(&self, operation: &Operation) -> KVGetResult {
+    pub fn remove(&self, operation: &Operation) -> KVResult {
+        let remove_kv = self.store.get_mut(&operation.key);
+
+        if let Some(mut value) = remove_kv {
+            if !value.2 {
+                return KVResult {
+                    message: format!(
+                        "kv not removed from store because it doesn't exist: {}",
+                        operation.key
+                    ),
+                    success: false,
+                    value: None,
+                    timestamp: None, // Include the timestamp of the existing value
+                };
+            } else {
+                value.1 = operation.timestamp;
+                value.2 = false;
+                return KVResult {
+                    message: format!(
+                        "kv removed from store: key {}, value: {}",
+                        &operation.key, value.0
+                    ),
+                    success: true,
+                    value: None,              // `remove` doesn't return a value
+                    timestamp: Some(value.1), // Include the updated timestamp
+                };
+            }
+        }
+
+        KVResult {
+            message: format!(
+                "kv not removed from store because it doesn't exist: {}",
+                operation.key
+            ),
+            success: false,
+            value: None,
+            timestamp: None,
+        }
+    }
+    pub fn get(&self, operation: &Operation) -> KVResult {
         let get_kv = self.store.get(&operation.key);
+
         match get_kv {
             Some(value) => {
-                if !value.2 {
-                    KVGetResult {
-                        message: None,
+                if value.2 {
+                    KVResult {
+                        message: "Key found in the store.".to_string(),
+                        success: true,
+                        value: Some(value.0.clone()),
                         timestamp: Some(value.1),
                     }
                 } else {
-                    KVGetResult {
-                        message: Some(value.0.clone()),
-                        timestamp: Some(value.1),
+                    KVResult {
+                        message: "Key not found in the store".to_string(),
+                        success: false,
+                        value: None,
+                        timestamp: None,
                     }
                 }
             }
-            None => KVGetResult {
-                message: None,
+            None => KVResult {
+                message: "Key not found in the store.".to_string(),
+                success: false,
+                value: None,
                 timestamp: None,
             },
         }

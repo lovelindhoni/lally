@@ -79,7 +79,7 @@ impl WriteAheadLogging {
         let flush_interval = Duration::from_millis(100);
 
         let wal = Arc::new(WriteAheadLogging::new(
-            config.log_path().to_path_buf(),
+            config.aof_file().to_path_buf(),
             flush_interval,
         ));
 

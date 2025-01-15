@@ -26,9 +26,9 @@ pub struct CliArgs {
     #[argh(switch)]
     fresh: Option<bool>,
 
-    /// path to wal log for replay
+    /// path to aof log for replay
     #[argh(option)]
-    path: Option<PathBuf>,
+    replay_log: Option<PathBuf>,
 
     /// ipv4 address of seed node
     #[argh(option)]
@@ -53,7 +53,7 @@ pub struct Config {
     fresh: bool,
 
     #[serde(default)]
-    path: Option<PathBuf>,
+    replay_log: Option<PathBuf>,
 
     ip: Option<String>,
 
@@ -67,7 +67,7 @@ pub struct Config {
     write_quorum: usize,
 
     #[serde(skip)]
-    log_path: PathBuf,
+    aof_storage_path: PathBuf,
 }
 
 impl Config {
@@ -82,8 +82,8 @@ impl Config {
         if let Some(fresh) = cli_args.fresh {
             config.fresh = fresh;
         }
-        if let Some(path) = cli_args.path {
-            config.path = Some(path);
+        if let Some(path) = cli_args.replay_log {
+            config.replay_log = Some(path);
         }
         if let Some(ip) = cli_args.ip {
             config.ip = Some(ip);
@@ -114,12 +114,12 @@ impl Config {
             .await
             .context("Failed to create data directory")?;
 
-        let mut log_path = project_dirs.data_dir().to_path_buf();
-        log_path.push("lallylog.txt");
-        self.log_path = log_path;
+        let mut aof_storage_path = project_dirs.data_dir().to_path_buf();
+        aof_storage_path.push("lallylog.txt");
+        self.aof_storage_path = aof_storage_path;
 
-        if self.fresh && self.path.is_some() {
-            bail!("Don't specify log file when starting fresh");
+        if self.fresh && self.replay_log.is_some() {
+            bail!("Don't specify replay log file when starting fresh");
         }
 
         // Handle fresh start
@@ -128,21 +128,21 @@ impl Config {
                 .write(true)
                 .create(true)
                 .truncate(true)
-                .open(&self.log_path)
+                .open(&self.aof_storage_path)
                 .await
-                .context("Failed to create fresh log file")?;
+                .context("Failed to create fresh aof file")?;
             return Ok(());
         }
 
         // Copy existing log file if path is provided
-        if let Some(source_path) = &self.path {
+        if let Some(source_path) = &self.replay_log {
             let canonical_source = canonicalize(source_path)
                 .await
-                .context("Failed to canonicalize source path")?;
+                .context("Failed to canonicalize replay log path")?;
 
-            copy(&canonical_source, &self.log_path)
+            copy(&canonical_source, &self.aof_storage_path)
                 .await
-                .context("Failed to copy log file")?;
+                .context("Failed to copy aof file")?;
         }
 
         Ok(())
@@ -161,7 +161,7 @@ impl Config {
             }
         };
         if !config_path.exists() {
-            bail!("Config file not found: {}", config_path.display());
+            bail!("Config file doesn't exist: {}", config_path.display());
         }
         let contents = read_to_string(&config_path)
             .await
@@ -182,8 +182,8 @@ impl Config {
     pub fn write_quorum(&self) -> usize {
         self.write_quorum
     }
-    pub fn log_path(&self) -> &Path {
-        &self.log_path
+    pub fn aof_file(&self) -> &Path {
+        &self.aof_storage_path
     }
 }
 
@@ -191,12 +191,12 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             fresh: false,
-            path: None,
+            replay_log: None,
             ip: None,
             port: default_port(),
             read_quorum: default_r_quorum(),
             write_quorum: default_w_quorum(),
-            log_path: PathBuf::new(), // Will be initialized properly in new()
+            aof_storage_path: PathBuf::new(), // Will be initialized properly in new()
         }
     }
 }

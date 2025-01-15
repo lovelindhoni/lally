@@ -5,6 +5,7 @@ use crate::cluster::services::{
     RemoveKvResponse,
 };
 use crate::utils::Operation;
+use anyhow::{anyhow, Context, Result};
 use futures::future::join_all;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,10 +25,12 @@ impl Connections {
         let cluster = self.cluster.read().await;
         cluster.keys().cloned().collect()
     }
-    pub async fn remove(&self, ip: &String) {
+    pub async fn remove(&self, ip: &String) -> Result<String> {
         let mut cluster = self.cluster.write().await;
-        // need some error handling below
-        cluster.remove(ip).unwrap();
+        match cluster.remove(ip) {
+            Some(_channel) => Ok("Removed Node".to_string()),
+            None => Err(anyhow!("Node doesnt't exists")),
+        }
     }
 
     pub async fn leave(&self) {
@@ -41,7 +44,6 @@ impl Connections {
                 async move {
                     let mut conn = ClusterManagementClient::new(channel);
                     let response = conn.remove(request).await;
-                    println!("{:?}", response);
                     match response {
                         Ok(msg) => println!("{}", msg.into_inner().message),
                         Err(e) => eprintln!("{}", e),
@@ -53,7 +55,7 @@ impl Connections {
         let _ = join_all(leave_cluster_futures).await;
     }
 
-    pub async fn conn_make(&self, addr: &String) -> Result<Channel, tonic::transport::Error> {
+    pub async fn conn_make(&self, addr: &String) -> Result<Channel> {
         let cluster = Arc::clone(&self.cluster);
         let cluster_guard = cluster.read().await;
         if let Some(channel) = cluster_guard.get(addr) {
@@ -67,9 +69,16 @@ impl Connections {
             return Ok(channel.clone());
         }
 
-        let client_uri = format!("http://{}", addr).parse::<Uri>().unwrap();
+        let client_uri = format!("http://{}", addr)
+            .parse::<Uri>()
+            .context("Failed to parse the client URI")?; // use anyhow to provide a better error message
         println!("{}", client_uri);
-        let channel = Channel::builder(client_uri).connect().await?;
+
+        let channel = Channel::builder(client_uri)
+            .connect()
+            .await
+            .context("Failed to connect to the channel")?; // additional error context
+
         cluster_guard.insert(addr.clone(), channel.clone());
         Ok(channel)
     }
@@ -77,9 +86,17 @@ impl Connections {
     pub async fn bulk_conn_make(&self, ip_addrs: &[String]) {
         let cluster = Arc::clone(&self.cluster);
         let conn_futures = ip_addrs.iter().map(|ip| {
-            let client_uri = format!("https://{}", ip).parse::<Uri>().unwrap();
+            let client_uri = format!("https://{}", ip);
             let ip = ip.clone();
             async move {
+                let client_uri = match client_uri.parse::<Uri>() {
+                    Ok(uri) => uri,
+                    Err(err) => {
+                        eprintln!("Failed to parse URI for IP {}: {}", ip, err);
+                        return None; // Skip this IP and move to the next one
+                    }
+                };
+
                 match Channel::builder(client_uri).connect().await {
                     Ok(channel) => Some((ip, channel)),
                     Err(err) => {
@@ -89,7 +106,6 @@ impl Connections {
                 }
             }
         });
-
         let results = join_all(conn_futures).await;
 
         for result in results.into_iter().flatten() {
@@ -124,14 +140,20 @@ impl Connections {
         let _ = join_all(gossip_results).await;
     }
 
-    pub async fn join(&self, addr: String) -> Vec<KvData> {
-        let seed_node_channel = self.conn_make(&addr).await.unwrap();
+    pub async fn join(&self, addr: String) -> Result<Vec<KvData>> {
+        let seed_node_channel = self
+            .conn_make(&addr)
+            .await
+            .context("failed to make connection to seed node")?;
         let request = Request::new(NoContentRequest {});
         let mut seed_node = ClusterManagementClient::new(seed_node_channel);
-        let response = seed_node.join(request).await.unwrap();
+        let response = seed_node
+            .join(request)
+            .await
+            .context("failed to join cluster through seed node")?;
         let message = response.into_inner();
         self.bulk_conn_make(&message.addresses).await;
-        message.store_data
+        Ok(message.store_data)
     }
 
     pub async fn get_kv(
@@ -256,8 +278,9 @@ impl Connections {
         };
         let channel = self.conn_make(ip).await.unwrap();
         let mut conn = KvStoreClient::new(channel);
-        if let Ok(_response) = conn.add(request).await {
-            println!("the kv is added");
+        match conn.add(request).await {
+            Ok(response) => println!("{:?}", response),
+            Err(e) => eprintln!("{}", e),
         }
     }
 
@@ -271,8 +294,9 @@ impl Connections {
         };
         let channel = self.conn_make(ip).await.unwrap();
         let mut conn = KvStoreClient::new(channel);
-        if let Ok(_response) = conn.remove(request).await {
-            println!("the kv is removed");
+        match conn.remove(request).await {
+            Ok(response) => println!("{:?}", response),
+            Err(e) => eprintln!("{}", e),
         }
     }
 

@@ -5,6 +5,7 @@ use tokio::sync::Mutex;
 
 #[derive(Default)]
 pub struct Hooks {
+    // TODO: change Mutex to RwLock
     hooks: Mutex<Vec<Arc<dyn Hook>>>,
 }
 
