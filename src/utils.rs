@@ -39,13 +39,14 @@ pub fn parse_log_line(line: &str) -> Result<Operation> {
         key,
         value,
         level,
-        timestamp: LallyStamp::from_rfc3339(timestamp)?,
+        timestamp: CreateTimestamp::from_rfc3339(timestamp)
+            .context("failed to parse rfc3339 to Timestamp")?,
     })
 }
 
-pub struct LallyStamp {}
+pub struct CreateTimestamp {}
 
-impl LallyStamp {
+impl CreateTimestamp {
     pub fn new() -> Timestamp {
         let now = Utc::now();
         Timestamp {

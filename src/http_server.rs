@@ -2,7 +2,7 @@ use crate::cluster::services::GetKvResponse;
 use crate::config::Config;
 use crate::lally::Lally;
 use crate::utils::Operation;
-use crate::utils::{compare_timestamps, LallyStamp};
+use crate::utils::{compare_timestamps, CreateTimestamp};
 use anyhow::Result;
 use axum::extract::{Json, State};
 use axum::http::StatusCode;
@@ -25,7 +25,7 @@ fn build_operation(payload: &Payload, operation_type: &str) -> Operation {
         value: payload.value.clone(),
         level: String::from("INFO"),
         name: String::from(operation_type),
-        timestamp: LallyStamp::new(),
+        timestamp: CreateTimestamp::new(),
     }
 }
 
@@ -61,7 +61,7 @@ async fn add_kv(
         StatusCode::OK,
         // i might return the no of quorum votes too
         Json(
-            json!({ "status": quorom_state, "data": response.message, "timestamp":  LallyStamp::to_rfc3339(&response_timestamp) }),
+            json!({ "status": quorom_state, "data": response.message, "timestamp":  CreateTimestamp::to_rfc3339(&response_timestamp) }),
         ),
     )
 }
@@ -213,7 +213,7 @@ async fn remove_kv(
         StatusCode::OK,
         Json(
             json!({ "status": quorom_state, "data": response, "timestamp": if is_removed {
-                Some(LallyStamp::to_rfc3339(&operation.timestamp))
+                Some(CreateTimestamp::to_rfc3339(&operation.timestamp))
             } else {
                 None
             }}),

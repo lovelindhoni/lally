@@ -7,7 +7,7 @@ use tokio::time::{interval, Duration};
 
 use super::Hook;
 use crate::config::Config;
-use crate::utils::LallyStamp;
+use crate::utils::CreateTimestamp;
 use crate::utils::Operation;
 
 pub struct AppendOnlyLog {
@@ -20,7 +20,7 @@ impl Hook for AppendOnlyLog {
     fn invoke(&self, operation: &Operation) {
         let mut operation_log = format!(
             "timestamp={} operation={} level={} key=\"{}\"",
-            LallyStamp::to_rfc3339(&operation.timestamp),
+            CreateTimestamp::to_rfc3339(&operation.timestamp),
             operation.name,
             operation.level,
             operation.key,
