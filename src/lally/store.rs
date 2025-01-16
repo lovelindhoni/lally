@@ -101,16 +101,10 @@ impl Store {
         let timestamp = operation.timestamp;
         let value = operation.value.as_ref().expect("value will be present");
 
-        let add_kv = self
-            .store
+        self.store
             .insert(key.clone(), (value.clone(), timestamp, true));
 
-        let message = match add_kv {
-            Some(old_value) => format!("kv added to store: value {} -> {}", old_value.0, value),
-            None => format!("kv added to store: {} -> {}", key, value),
-        };
         KVResult {
-            message,
             success: true,
             value: None, // `add` doesn't return a value
             timestamp: Some(timestamp),
@@ -123,10 +117,6 @@ impl Store {
         if let Some(mut value) = remove_kv {
             if !value.2 {
                 return KVResult {
-                    message: format!(
-                        "kv not removed from store because it doesn't exist: {}",
-                        operation.key
-                    ),
                     success: false,
                     value: None,
                     timestamp: None, // Include the timestamp of the existing value
@@ -135,10 +125,6 @@ impl Store {
                 value.1 = operation.timestamp;
                 value.2 = false;
                 return KVResult {
-                    message: format!(
-                        "kv removed from store: key {}, value: {}",
-                        &operation.key, value.0
-                    ),
                     success: true,
                     value: None,              // `remove` doesn't return a value
                     timestamp: Some(value.1), // Include the updated timestamp
@@ -147,10 +133,6 @@ impl Store {
         }
 
         KVResult {
-            message: format!(
-                "kv not removed from store because it doesn't exist: {}",
-                operation.key
-            ),
             success: false,
             value: None,
             timestamp: None,
@@ -163,14 +145,12 @@ impl Store {
             Some(value) => {
                 if value.2 {
                     KVResult {
-                        message: "Key found in the store.".to_string(),
                         success: true,
                         value: Some(value.0.clone()),
                         timestamp: Some(value.1),
                     }
                 } else {
                     KVResult {
-                        message: "Key not found in the store".to_string(),
                         success: false,
                         value: None,
                         timestamp: None,
@@ -178,7 +158,6 @@ impl Store {
                 }
             }
             None => KVResult {
-                message: "Key not found in the store.".to_string(),
                 success: false,
                 value: None,
                 timestamp: None,

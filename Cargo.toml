@@ -7,10 +7,9 @@ edition = "2021"
 tonic-build = "0.12.3"
 
 [dependencies]
+actix-web = "4.9.0"
 anyhow = "1.0.94"
 argh = "0.1.13"
-axum = "0.7.9"
-axum-macros = "0.4.2"
 chrono = "0.4.39"
 crossbeam = "0.8.4"
 dashmap = "6.1.0"

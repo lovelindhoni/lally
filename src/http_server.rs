@@ -3,12 +3,7 @@ use crate::config::Config;
 use crate::lally::Lally;
 use crate::utils::Operation;
 use crate::utils::{compare_timestamps, CreateTimestamp};
-use anyhow::Result;
-use axum::extract::{Json, State};
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
-use axum::routing::{delete, get, post};
-use axum::Router;
+use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
@@ -30,59 +25,69 @@ fn build_operation(payload: &Payload, operation_type: &str) -> Operation {
 }
 
 async fn add_kv(
-    State(state): State<Arc<SharedState>>,
-    Json(payload): Json<Payload>,
-) -> impl IntoResponse {
+    lally: web::Data<Arc<Lally>>,
+    config: web::Data<Config>,
+    payload: web::Json<Payload>,
+) -> impl Responder {
     if payload.value.is_none() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "status": "error", "message": "Missing required field: value" })),
-        );
+        return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Missing required field: value"
+        }));
     }
+
     let operation = build_operation(&payload, "ADD");
-    state.lally.hooks.invoke_all(&operation).await;
-    let response = state.lally.store.add(&operation);
+    lally.hooks.invoke_all(&operation).await;
+    let response = lally.store.add(&operation);
     let response_timestamp = response
         .timestamp
         .expect("timestamp will be present for ADD operation");
-    let needed_quorum_votes = state.config.write_quorum() - 1;
-    let (cluster_responses, is_quorum_achieved) = state
-        .lally
-        .cluster
-        .add_kv(&operation, needed_quorum_votes)
-        .await;
-    let quorom_state = if is_quorum_achieved {
+
+    let needed_quorum_votes = config.write_quorum() - 1;
+    let cluster_responses = lally.cluster.add_kv(&operation, needed_quorum_votes).await;
+
+    let is_quorum_achieved = cluster_responses.len() == needed_quorum_votes;
+
+    let quorum_state = if is_quorum_achieved {
         "success"
     } else {
         "partial"
     };
+
     println!("{:?}", cluster_responses);
-    (
-        StatusCode::OK,
-        // i might return the no of quorum votes too
-        Json(
-            json!({ "status": quorom_state, "data": response.message, "timestamp":  CreateTimestamp::to_rfc3339(&response_timestamp) }),
-        ),
-    )
+
+    HttpResponse::Ok().json(json!({
+        "status": quorum_state,
+        "key": payload.key,
+        "value": payload.value,
+        "timestamp": CreateTimestamp::to_rfc3339(&response_timestamp),
+        "quorum": {
+            "required": config.write_quorum(),
+            "achieved": cluster_responses.len() + 1
+        },
+        "message": if is_quorum_achieved {
+            "Operation completed successfully."
+        } else {
+            "Partial quorum achieved; some nodes failed to respond."
+        }
+    }))
 }
 
 async fn get_kv(
-    State(state): State<Arc<SharedState>>,
-    Json(payload): Json<Payload>,
-) -> impl IntoResponse {
+    lally: web::Data<Arc<Lally>>,
+    config: web::Data<Config>,
+    payload: web::Json<Payload>,
+) -> impl Responder {
     let operation = build_operation(&payload, "GET");
-    let needed_quorum_votes = state.config.read_quorum() - 1;
-    let get_op = state.lally.store.get(&operation);
-    let (mut cluster_responses, is_quorum_achieved) = state
-        .lally
-        .cluster
-        .get_kv(&operation, needed_quorum_votes)
-        .await;
+    let needed_quorum_votes = config.read_quorum() - 1;
+    let get_op = lally.store.get(&operation);
+    let mut cluster_responses = lally.cluster.get_kv(&operation, needed_quorum_votes).await;
     let get_op_converted = GetKvResponse {
         value: get_op.value,
         timestamp: get_op.timestamp,
     };
     cluster_responses.push(("local".to_string(), get_op_converted));
+    let is_quorum_achieved = cluster_responses.len() == config.read_quorum();
     let quorom_state = if is_quorum_achieved {
         "success"
     } else {
@@ -127,7 +132,7 @@ async fn get_kv(
                 };
                 match &latest_response.value {
                     Some(_msg) => {
-                        let lally_clone = Arc::clone(&state.lally);
+                        let lally_clone = Arc::clone(&lally);
                         let ip = ip.clone();
                         tokio::spawn(async move {
                             if ip == "local" {
@@ -142,7 +147,7 @@ async fn get_kv(
                         });
                     }
                     None => {
-                        let lally_clone = Arc::clone(&state.lally);
+                        let lally_clone = Arc::clone(&lally);
                         let ip = ip.clone();
                         tokio::spawn(async move {
                             if ip == "local" {
@@ -158,90 +163,127 @@ async fn get_kv(
                     }
                 }
             }
-            if let Some(message) = &latest_response.value {
-                return (
-                    StatusCode::OK,
-                    Json(json!({ "status": quorom_state, "data": message })),
-                );
+
+            if let Some(value) = &latest_response.value {
+                return HttpResponse::Ok().json(json!({
+                        "status": quorom_state,
+                        "key": operation.key,
+                        "value": value,
+                        "timestamp": CreateTimestamp::to_rfc3339(&latest_timestamp),
+                        "quorum": {
+                            "required": config.read_quorum(),
+                            "achieved": cluster_responses.len()
+                        },
+                        "message": format!("Key '{}' was fetched successfully.", operation.key)
+                }));
             }
         }
     }
-    (
-        StatusCode::OK,
-        Json(json!({ "status": quorom_state, "data": "No such kv exists" })),
-    )
+
+    HttpResponse::Ok().json(json!({
+        "status": quorom_state,
+        "key": operation.key,
+        "value": null,
+        "timestamp": null,
+        "quorum": {
+            "required": config.read_quorum(),
+            "achieved": cluster_responses.len()
+        },
+        "message": format!("Key '{}' does not exist or quorum may not be reached", operation.key)
+    }))
 }
 
 async fn remove_kv(
-    State(state): State<Arc<SharedState>>,
-    Json(payload): Json<Payload>,
-) -> impl IntoResponse {
+    lally: web::Data<Arc<Lally>>,
+    config: web::Data<Config>,
+    payload: web::Json<Payload>,
+) -> impl Responder {
     let operation = build_operation(&payload, "REMOVE");
-    state.lally.hooks.invoke_all(&operation).await;
-    let remove_response = state.lally.store.remove(&operation);
-    let needed_quorum_votes = state.config.write_quorum() - 1;
+
+    // Invoke hooks
+    lally.hooks.invoke_all(&operation).await;
+
+    // Remove from local store
+    let remove_response = lally.store.remove(&operation);
+
+    // Determine quorum votes needed
+    let needed_quorum_votes = config.write_quorum() - 1;
     println!("quorum needed, {}", needed_quorum_votes);
-    let (cluster_responses, is_quorum_achieved) = state
-        .lally
+
+    // Remove from cluster
+    let cluster_responses = lally
         .cluster
         .remove_kv(&operation, needed_quorum_votes)
         .await;
-    let quorom_state = if is_quorum_achieved {
+
+    let is_quorum_achieved = cluster_responses.len() == needed_quorum_votes;
+
+    // Determine quorum state
+    let quorum_state = if is_quorum_achieved {
         "success"
     } else {
         "partial"
     };
+
+    // Check if the key was removed
     let mut is_removed = remove_response.success;
     println!("{:?}", cluster_responses);
+
     if !is_removed {
-        for response in cluster_responses {
+        for response in &cluster_responses {
             if response.is_removed {
                 is_removed = response.is_removed;
                 break;
             }
         }
     }
-    let response = if is_removed {
-        format!("kv removed from store: key {}", operation.key)
+
+    let message = if is_removed {
+        format!("Key '{}' was successfully removed.", operation.key)
     } else {
         format!(
-            "kv not removed from store because it doesn't exists: {}",
+            "Key '{}' does not exist in the store or quorum not achieved",
             operation.key
         )
     };
-    (
-        StatusCode::OK,
-        Json(
-            json!({ "status": quorom_state, "data": response, "timestamp": if is_removed {
-                Some(CreateTimestamp::to_rfc3339(&operation.timestamp))
-            } else {
-                None
-            }}),
-        ),
-    )
+
+    // Prepare JSON response
+    HttpResponse::Ok().json(json!({
+        "status": quorum_state,
+        "key": operation.key,
+        "value": if is_removed { remove_response.value } else { None },
+        "timestamp": if is_removed {
+            Some(CreateTimestamp::to_rfc3339(&operation.timestamp))
+        } else {
+            None
+        },
+        "quorum": {
+            "required": config.write_quorum(),
+            "achieved": cluster_responses.len() + 1
+        },
+        "message": message
+    }))
 }
 
-async fn greet() -> &'static str {
+async fn greet() -> impl Responder {
     "Hello World! from lally"
 }
 
-#[derive(Clone)]
-struct SharedState {
-    pub lally: Arc<Lally>,
-    pub config: Config,
-}
-pub async fn run(lally: Arc<Lally>, config: Config) -> Result<()> {
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", config.port())).await?;
-    println!("lally started at 0.0.0.0:{}...", config.port());
+pub async fn run(lally: Arc<Lally>, config: Config) -> std::io::Result<()> {
+    let addr = format!("0.0.0.0:{}", config.port());
 
-    let state = Arc::new(SharedState { lally, config });
-    let app = Router::new()
-        .route("/", get(greet))
-        .route("/get", post(get_kv))
-        .route("/add", post(add_kv))
-        .route("/remove", delete(remove_kv))
-        .with_state(state);
+    println!("lally started at {}", &addr);
 
-    axum::serve(listener, app).await?;
-    Ok(())
+    HttpServer::new(move || {
+        App::new()
+            .app_data(web::Data::new(Arc::clone(&lally)))
+            .app_data(web::Data::new(config.clone()))
+            .route("/add", web::post().to(add_kv))
+            .route("/get", web::post().to(get_kv))
+            .route("/remove", web::delete().to(remove_kv))
+            .route("/greet", web::get().to(greet))
+    })
+    .bind(addr)?
+    .run()
+    .await
 }

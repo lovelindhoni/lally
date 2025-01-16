@@ -80,7 +80,6 @@ pub struct Operation {
 }
 
 pub struct KVResult {
-    pub message: String,
     pub success: bool,
     pub value: Option<String>, // Used for `get` operation
     pub timestamp: Option<Timestamp>,

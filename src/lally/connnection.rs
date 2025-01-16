@@ -152,7 +152,7 @@ impl Connections {
         &self,
         operation: &Operation,
         needed_quorum_votes: usize,
-    ) -> (Vec<(String, GetKvResponse)>, bool) {
+    ) -> Vec<(String, GetKvResponse)> {
         let cluster = Arc::clone(&self.cluster);
         let kv_operation = KvOperation {
             name: operation.name.clone(),
@@ -183,7 +183,7 @@ impl Connections {
                 Ok(Ok(response)) => {
                     responses.push(response);
                     if responses.len() == needed_quorum_votes {
-                        return (responses, true);
+                        return responses;
                     }
                 }
                 Ok(Err(e)) => {
@@ -195,15 +195,14 @@ impl Connections {
                 }
             }
         }
-        let responses_len = responses.len();
-        (responses, responses_len == needed_quorum_votes)
+        responses
     }
 
     pub async fn remove_kv(
         &self,
         operation: &Operation,
         needed_quorum_votes: usize,
-    ) -> (Vec<RemoveKvResponse>, bool) {
+    ) -> Vec<RemoveKvResponse> {
         let cluster = Arc::clone(&self.cluster);
 
         let kv_operation = KvOperation {
@@ -238,7 +237,7 @@ impl Connections {
                     println!("{:?}", response);
                     responses.push(response);
                     if responses.len() == needed_quorum_votes {
-                        return (responses, true);
+                        return responses;
                     }
                 }
                 Ok(Err(e)) => {
@@ -249,8 +248,7 @@ impl Connections {
                 }
             }
         }
-        let responses_len = responses.len();
-        (responses, responses_len == needed_quorum_votes)
+        responses
     }
 
     pub async fn solo_add_kv(&self, operation: &Operation, ip: &String) {
@@ -289,7 +287,7 @@ impl Connections {
         &self,
         operation: &Operation,
         needed_quorum_votes: usize,
-    ) -> (Vec<AddKvResponse>, bool) {
+    ) -> Vec<AddKvResponse> {
         let cluster = Arc::clone(&self.cluster);
 
         let kv_operation = KvOperation {
@@ -323,7 +321,7 @@ impl Connections {
                     println!("{:?}", response);
                     responses.push(response);
                     if responses.len() == needed_quorum_votes {
-                        return (responses, true);
+                        return responses;
                     }
                 }
                 Ok(Err(e)) => {
@@ -334,7 +332,6 @@ impl Connections {
                 }
             }
         }
-        let responses_len = responses.len();
-        (responses, responses_len == needed_quorum_votes)
+        responses
     }
 }
