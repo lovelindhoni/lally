@@ -6,10 +6,10 @@ use crate::cluster::services::{
 };
 use crate::utils::Operation;
 use anyhow::{anyhow, Context, Result};
-use futures::future::join_all;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::RwLock;
+use tokio::task::JoinSet;
 use tonic::transport::{Channel, Uri};
 use tonic::Request;
 
@@ -34,25 +34,22 @@ impl Connections {
     }
 
     pub async fn leave(&self) {
-        let mut cluster = self.cluster.write().await;
+        let cluster = self.cluster.write().await;
         println!("leave cluster function statrted");
-        let leave_cluster_futures = cluster
-            .values_mut()
-            .map(|channel| {
-                let request = Request::new(NoContentRequest {});
-                let channel = channel.clone();
-                async move {
-                    let mut conn = ClusterManagementClient::new(channel);
-                    let response = conn.remove(request).await;
-                    match response {
-                        Ok(msg) => println!("{}", msg.into_inner().message),
-                        Err(e) => eprintln!("{}", e),
-                    }
+        let mut futures_set = JoinSet::new();
+        for channel in cluster.values() {
+            let request = Request::new(NoContentRequest {});
+            let channel = channel.clone();
+            futures_set.spawn(async move {
+                let mut conn = ClusterManagementClient::new(channel);
+                let response = conn.remove(request).await;
+                match response {
+                    Ok(msg) => println!("{}", msg.into_inner().message),
+                    Err(e) => eprintln!("{}", e),
                 }
-            })
-            .collect::<Vec<_>>();
-
-        let _ = join_all(leave_cluster_futures).await;
+            });
+        }
+        futures_set.join_all().await;
     }
 
     pub async fn conn_make(&self, addr: &String) -> Result<Channel> {
@@ -85,10 +82,11 @@ impl Connections {
 
     pub async fn bulk_conn_make(&self, ip_addrs: &[String]) {
         let cluster = Arc::clone(&self.cluster);
-        let conn_futures = ip_addrs.iter().map(|ip| {
-            let client_uri = format!("https://{}", ip);
+        let mut futures_set = JoinSet::new();
+        for ip in ip_addrs.iter() {
             let ip = ip.clone();
-            async move {
+            let client_uri = format!("https://{}", ip);
+            futures_set.spawn(async move {
                 let client_uri = match client_uri.parse::<Uri>() {
                     Ok(uri) => uri,
                     Err(err) => {
@@ -96,7 +94,6 @@ impl Connections {
                         return None; // Skip this IP and move to the next one
                     }
                 };
-
                 match Channel::builder(client_uri).connect().await {
                     Ok(channel) => Some((ip, channel)),
                     Err(err) => {
@@ -104,10 +101,10 @@ impl Connections {
                         None
                     }
                 }
-            }
-        });
-        let results = join_all(conn_futures).await;
+            });
+        }
 
+        let results = futures_set.join_all().await;
         for result in results.into_iter().flatten() {
             println!("Connected to {}: {:?}", result.0, result.1);
             let mut cluster_guard = cluster.write().await;
@@ -117,27 +114,22 @@ impl Connections {
 
     pub async fn gossip(&self, addr: String) {
         let cluster = Arc::clone(&self.cluster);
+        let mut futures_set = JoinSet::new();
+        let cluster_guard = cluster.read().await;
+        for channel in cluster_guard.values() {
+            let request = Request::new(AddNodeRequest { ip: addr.clone() });
+            let channel = channel.clone();
+            futures_set.spawn(async move {
+                let mut conn = ClusterManagementClient::new(channel);
+                let response = conn.add(request).await;
+                match response {
+                    Ok(msg) => println!("{}", msg.into_inner().message),
+                    Err(e) => eprintln!("{}", e),
+                }
+            });
+        }
 
-        let gossip_results = {
-            let cluster_guard = cluster.read().await;
-            cluster_guard
-                .values()
-                .map(|channel| {
-                    let request = Request::new(AddNodeRequest { ip: addr.clone() });
-                    let channel = channel.clone();
-                    async move {
-                        let mut conn = ClusterManagementClient::new(channel);
-                        let response = conn.add(request).await;
-                        match response {
-                            Ok(msg) => println!("{}", msg.into_inner().message),
-                            Err(e) => eprintln!("{}", e),
-                        }
-                    }
-                })
-                .collect::<Vec<_>>()
-        };
-
-        let _ = join_all(gossip_results).await;
+        futures_set.join_all().await;
     }
 
     pub async fn join(&self, addr: String) -> Result<Vec<KvData>> {
@@ -171,38 +163,35 @@ impl Connections {
         };
         let cluster_guard = cluster.read().await;
         println!("{}", cluster_guard.len());
-        let (tx, mut rx) = mpsc::channel(cluster_guard.len() + 1);
+        let mut futures_set = JoinSet::new();
         println!("{}", needed_quorum_votes);
         for (ip, channel) in cluster_guard.iter() {
-            let tx = tx.clone();
             let request = Request::new(kv_operation.clone());
             let ip = ip.clone();
             let channel = channel.clone();
-            tokio::spawn(async move {
+            futures_set.spawn(async move {
                 let mut conn = KvStoreClient::new(channel);
                 match conn.get(request).await {
-                    Ok(response) => {
-                        let _ = tx.send(Ok((ip, response.into_inner()))).await;
-                    }
-                    Err(e) => {
-                        let _ = tx.send(Err(e.to_string())).await;
-                    }
+                    Ok(response) => Ok((ip, response.into_inner())),
+                    Err(e) => Err(e.to_string()),
                 }
             });
         }
-        drop(tx);
         let mut responses = Vec::new();
-        while let Some(result) = rx.recv().await {
+        while let Some(result) = futures_set.join_next().await {
             match result {
-                Ok(response) => {
+                Ok(Ok(response)) => {
                     responses.push(response);
                     if responses.len() == needed_quorum_votes {
                         return (responses, true);
                     }
                 }
-                Err(response) => {
-                    println!("{:?}", response);
-                    continue;
+                Ok(Err(e)) => {
+                    eprintln!("{}", e);
+                }
+                Err(e) => {
+                    // task panic maybe?
+                    eprintln!("{:?}", e);
                 }
             }
         }
@@ -227,40 +216,36 @@ impl Connections {
 
         let cluster_guard = cluster.read().await;
         println!("{}", cluster_guard.len());
-        let (tx, mut rx) = mpsc::channel(cluster_guard.len() + 1);
 
         println!("{}", needed_quorum_votes);
 
+        let mut futures_set = JoinSet::new();
         for channel in cluster_guard.values() {
-            let tx = tx.clone();
             let request = Request::new(kv_operation.clone());
             let channel = channel.clone();
-            tokio::spawn(async move {
+            futures_set.spawn(async move {
                 let mut conn = KvStoreClient::new(channel);
                 match conn.remove(request).await {
-                    Ok(response) => {
-                        let _ = tx.send(Ok(response.into_inner())).await;
-                    }
-                    Err(e) => {
-                        let _ = tx.send(Err(e.to_string())).await;
-                    }
+                    Ok(response) => Ok(response.into_inner()),
+                    Err(e) => Err(e.to_string()),
                 }
             });
         }
-        drop(tx);
         let mut responses = Vec::new();
-        while let Some(result) = rx.recv().await {
+        while let Some(result) = futures_set.join_next().await {
             match result {
-                Ok(response) => {
+                Ok(Ok(response)) => {
                     println!("{:?}", response);
                     responses.push(response);
                     if responses.len() == needed_quorum_votes {
                         return (responses, true);
                     }
                 }
-                Err(response) => {
-                    println!("{:?}", response);
-                    continue;
+                Ok(Err(e)) => {
+                    eprintln!("{}", e);
+                }
+                Err(e) => {
+                    println!("{:?}", e);
                 }
             }
         }
@@ -317,40 +302,35 @@ impl Connections {
 
         let cluster_guard = cluster.read().await;
         println!("{}", cluster_guard.len());
-        let (tx, mut rx) = mpsc::channel(cluster_guard.len() + 1);
 
         println!("{}", needed_quorum_votes);
-
+        let mut futures_set = JoinSet::new();
         for channel in cluster_guard.values() {
-            let tx = tx.clone();
             let request = Request::new(kv_operation.clone());
             let channel = channel.clone();
-            tokio::spawn(async move {
+            futures_set.spawn(async move {
                 let mut conn = KvStoreClient::new(channel);
                 match conn.add(request).await {
-                    Ok(response) => {
-                        let _ = tx.send(Ok(response.into_inner())).await;
-                    }
-                    Err(e) => {
-                        let _ = tx.send(Err(e.to_string())).await;
-                    }
+                    Ok(response) => Ok(response.into_inner()),
+                    Err(e) => Err(e.to_string()),
                 }
             });
         }
-        drop(tx);
         let mut responses = Vec::new();
-        while let Some(result) = rx.recv().await {
+        while let Some(result) = futures_set.join_next().await {
             match result {
-                Ok(response) => {
+                Ok(Ok(response)) => {
                     println!("{:?}", response);
                     responses.push(response);
                     if responses.len() == needed_quorum_votes {
                         return (responses, true);
                     }
                 }
-                Err(response) => {
-                    println!("{:?}", response);
-                    continue;
+                Ok(Err(e)) => {
+                    eprintln!("{}", e);
+                }
+                Err(e) => {
+                    eprintln!("{:?}", e);
                 }
             }
         }
