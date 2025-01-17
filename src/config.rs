@@ -107,7 +107,6 @@ impl Config {
             info!("Write quorum set to: {}", write_quorum);
         }
 
-        // Initialize project directories and handle log file
         config.initialize_log_file().await?;
 
         debug!("Final configuration: {:?}", config);
@@ -130,7 +129,6 @@ impl Config {
         aof_storage_path.push("aof.txt");
         self.aof_storage_path = aof_storage_path;
 
-        // If fresh start is requested, handle accordingly
         if self.fresh && self.replay_log.is_some() {
             bail!("Don't specify replay log file when starting fresh");
         }
@@ -148,7 +146,7 @@ impl Config {
             return Ok(());
         }
 
-        // Handle replay log copy if provided
+        // Handle replay log copy to the fixed location if provided
         if let Some(source_path) = &self.replay_log {
             let canonical_source = canonicalize(source_path)
                 .await
@@ -193,6 +191,7 @@ impl Config {
         serde_yaml::from_str(&contents).context("Failed to parse config file")
     }
 
+    // getters
     pub fn addr(&self) -> Option<&str> {
         self.addr.as_deref()
     }

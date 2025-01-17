@@ -14,19 +14,18 @@ use tonic::transport::{Channel, Uri};
 use tonic::Request;
 use tracing::{debug, error, info, span, Level};
 
-// this module needs some good refactoring
-
 #[derive(Default)]
 pub struct Pool {
     pub pool: Arc<RwLock<HashMap<String, Channel>>>,
 }
 
 impl Pool {
-    pub async fn get_ips(&self) -> Vec<String> {
+    pub async fn get_addrs(&self) -> Vec<String> {
         let pool = self.pool.read().await;
         pool.keys().cloned().collect()
     }
     pub async fn remove(&self, ip: &String) -> Result<String> {
+        // remove a node from the pool
         let mut pool = self.pool.write().await;
 
         match pool.remove(ip) {
@@ -41,14 +40,15 @@ impl Pool {
         }
     }
     pub async fn leave(&self) {
+        // leaves from the cluster volunatarily (i.e gracefull shutdown)
         let pool = self.pool.write().await;
         info!("Starting to leave the cluster");
         let mut futures_set = JoinSet::new();
         for (ip, channel) in pool.iter() {
+            let trace_span = span!(Level::INFO, "remove_node", ip = %ip);
+            let _enter = trace_span.enter();
             let channel = channel.clone();
             let ip = ip.clone();
-            let remove_span = span!(Level::INFO, "remove_node", ip = %ip);
-            let _enter = remove_span.enter();
             let request = Request::new(NoContentRequest {});
             futures_set.spawn(async move {
                 let mut conn = ClusterManagementClient::new(channel);
@@ -65,9 +65,9 @@ impl Pool {
     }
 
     pub async fn conn_make(&self, addr: &String) -> Result<Channel> {
-        let conn_span = span!(Level::INFO, "conn_make", addr = %addr);
-        let _enter = conn_span.enter();
-
+        let trace_span = span!(Level::INFO, "conn_make", addr = %addr);
+        let _enter = trace_span.enter();
+        // returns the connection channel from the pool or create one if it don't exists
         let pool = Arc::clone(&self.pool);
 
         let pool_gaurd = pool.read().await;
@@ -89,7 +89,7 @@ impl Pool {
 
         let client_uri = format!("http://{}", addr)
             .parse::<Uri>()
-            .context("Failed to parse the client URI")?; // use anyhow to provide a better error message
+            .context("Failed to parse the client URI")?;
 
         match Channel::builder(client_uri).connect().await {
             Ok(channel) => {
@@ -106,8 +106,8 @@ impl Pool {
     }
 
     pub async fn bulk_conn_make(&self, ip_addrs: &[String]) {
-        let bulk_span = span!(Level::INFO, "bulk_conn_make", num_ips = ip_addrs.len());
-        let _enter = bulk_span.enter();
+        let trace_span = span!(Level::INFO, "bulk_conn_make", num_ips = ip_addrs.len());
+        let _enter = trace_span.enter();
 
         info!(
             "Starting bulk connection setup for {} IP addresses.",
@@ -137,6 +137,7 @@ impl Pool {
                     }
                 }
             });
+            // gossiping the addition of new node to the cluster to all the present nodes
         }
 
         let pool = Arc::clone(&self.pool);
@@ -148,6 +149,7 @@ impl Pool {
         info!("Finished processing bulk connection setup.");
     }
 
+    // gossiping the addition of new node to the cluster to all the present nodes
     pub async fn gossip(&self, addr: String) {
         let trace_span = span!(Level::INFO, "gossip", addr = addr.clone());
         let _enter = trace_span.enter();
@@ -186,6 +188,7 @@ impl Pool {
         );
     }
 
+    // volunatarily joining the cluster
     pub async fn join(&self, addr: String) -> Result<Vec<KvData>> {
         let trace_span = span!(Level::INFO, "join", addr = addr.clone());
         let _enter = trace_span.enter();
@@ -219,6 +222,7 @@ impl Pool {
         Ok(message.store_data)
     }
 
+    // key value operations across the cluster pool to achieve quorum
     pub async fn get_kv(
         &self,
         operation: &Operation,
@@ -337,64 +341,6 @@ impl Pool {
         responses
     }
 
-    pub async fn solo_add_kv(&self, operation: &Operation, ip: &String) {
-        let request = KvOperation {
-            name: operation.name.clone(),
-            level: operation.level.clone(),
-            value: operation.value.clone(),
-            timestamp: Some(operation.timestamp),
-            key: operation.key.clone(),
-        };
-        match self.conn_make(ip).await {
-            Ok(channel) => {
-                let mut conn = KvStoreClient::new(channel);
-                match conn.add_kv(Request::new(request)).await {
-                    Ok(response) => {
-                        info!(
-                            "Successfully added key: {} with response: {:?}",
-                            operation.key, response
-                        );
-                    }
-                    Err(e) => {
-                        error!("Error adding key {}: {}", operation.key, e);
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Failed to create connection to {}: {}", ip, e);
-            }
-        }
-    }
-
-    pub async fn solo_remove_kv(&self, operation: &Operation, ip: &String) {
-        let request = KvOperation {
-            name: operation.name.clone(),
-            level: operation.level.clone(),
-            value: operation.value.clone(),
-            timestamp: Some(operation.timestamp),
-            key: operation.key.clone(),
-        };
-        match self.conn_make(ip).await {
-            Ok(channel) => {
-                let mut conn = KvStoreClient::new(channel);
-                match conn.remove_kv(Request::new(request)).await {
-                    Ok(response) => {
-                        info!(
-                            "Successfully removed key: {} with response: {:?}",
-                            operation.key, response
-                        );
-                    }
-                    Err(e) => {
-                        error!("Error removing key {}: {}", operation.key, e);
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Failed to create connection to {}: {}", ip, e);
-            }
-        }
-    }
-
     pub async fn add_kv(
         &self,
         operation: &Operation,
@@ -455,5 +401,65 @@ impl Pool {
             }
         }
         responses
+    }
+
+    // these two infant functions are used for read repair alone, in case if we
+    // need to add or remove a kv on a specific node in the cluster that has lagging timestamp
+    pub async fn solo_add_kv(&self, operation: &Operation, ip: &String) {
+        let request = KvOperation {
+            name: operation.name.clone(),
+            level: operation.level.clone(),
+            value: operation.value.clone(),
+            timestamp: Some(operation.timestamp),
+            key: operation.key.clone(),
+        };
+        match self.conn_make(ip).await {
+            Ok(channel) => {
+                let mut conn = KvStoreClient::new(channel);
+                match conn.add_kv(Request::new(request)).await {
+                    Ok(response) => {
+                        info!(
+                            "Successfully added key: {} with response: {:?}",
+                            operation.key, response
+                        );
+                    }
+                    Err(e) => {
+                        error!("Error adding key {}: {}", operation.key, e);
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to create connection to {}: {}", ip, e);
+            }
+        }
+    }
+
+    pub async fn solo_remove_kv(&self, operation: &Operation, ip: &String) {
+        let request = KvOperation {
+            name: operation.name.clone(),
+            level: operation.level.clone(),
+            value: operation.value.clone(),
+            timestamp: Some(operation.timestamp),
+            key: operation.key.clone(),
+        };
+        match self.conn_make(ip).await {
+            Ok(channel) => {
+                let mut conn = KvStoreClient::new(channel);
+                match conn.remove_kv(Request::new(request)).await {
+                    Ok(response) => {
+                        info!(
+                            "Successfully removed key: {} with response: {:?}",
+                            operation.key, response
+                        );
+                    }
+                    Err(e) => {
+                        error!("Error removing key {}: {}", operation.key, e);
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to create connection to {}: {}", ip, e);
+            }
+        }
     }
 }

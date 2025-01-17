@@ -14,6 +14,7 @@ pub struct Payload {
     pub value: Option<String>,
 }
 
+// helper utility to convert the payload to an operation struct, which will be used across all key-value operations
 fn build_operation(payload: &Payload, operation_type: &str) -> Operation {
     Operation {
         key: payload.key.clone(),
@@ -50,11 +51,12 @@ async fn add_kv(
         .expect("timestamp will be present for ADD operation");
 
     info!(key = %operation.key, "Added key to local store, timestamp: {}", response_timestamp);
+
+    // write_quorum - 1 means leaving out the current local node
     let needed_quorum_votes = config.write_quorum() - 1;
     let cluster_responses = lally.pool.add_kv(&operation, needed_quorum_votes).await;
 
     let is_quorum_achieved = cluster_responses.len() == needed_quorum_votes;
-
     let quorum_state = if is_quorum_achieved {
         "success"
     } else {
@@ -112,7 +114,7 @@ async fn get_kv(
     };
 
     info!(key = %operation.key, quorum_state = %quorum_state);
-    // does read repair, prolly moved to a seperate function
+    // does read repair, prolly will be moved to a seperate function
 
     let max_timestamp = cluster_responses
         .iter()
@@ -132,8 +134,8 @@ async fn get_kv(
             .find(|(_, response)| response.timestamp.as_ref() == Some(&latest_timestamp))
         {
             debug!("Read repair triggered for nodes with outdated data");
-            // Step 5: Replicate to nodes with older or missing timestamps
-            for (ip, _response) in &cluster_responses {
+            // Replicate to nodes with older or missing timestamps
+            for (ip, _) in &cluster_responses {
                 if nodes_with_latest_timestamp.contains(&ip) {
                     // Skip nodes with the latest timestamp
                     continue;
@@ -142,6 +144,9 @@ async fn get_kv(
                     key: operation.key.to_string(),
                     value: latest_response.value.clone(),
                     name: String::from(if latest_response.value.is_some() {
+                        // if it is None, the the latest operation occured on the key is REMOVE, so we
+                        // need to remove, the kv on other nodes too, if else the key is
+                        // Some(value), then we should ADD that to other nodes
                         "ADD"
                     } else {
                         "REMOVE"
@@ -150,18 +155,18 @@ async fn get_kv(
                     level: String::from("INFO"),
                 };
                 match &latest_response.value {
-                    Some(_msg) => {
+                    Some(_) => {
                         let lally_clone = Arc::clone(&lally);
                         let ip = ip.clone();
                         tokio::spawn(async move {
                             if ip == "local" {
+                                // special case if the local node itself needs to be repaired
                                 let _ = lally_clone.store.add(&read_repair_operation);
                             } else {
                                 lally_clone
                                     .pool
                                     .solo_add_kv(&read_repair_operation, &ip)
                                     .await;
-                                // remote grpc add_kv call
                             }
                         });
                     }
@@ -176,7 +181,6 @@ async fn get_kv(
                                     .pool
                                     .solo_remove_kv(&read_repair_operation, &ip)
                                     .await;
-                                // remote grpc remove_kv call
                             }
                         });
                     }
@@ -228,11 +232,9 @@ async fn remove_kv(
 
     lally.hooks.invoke_all(&operation).await;
 
-    // Remove from local store
-    debug!("Attempting to remove key from local store");
+    debug!("Attempting to remove key from local node");
     let remove_response = lally.store.remove(&operation);
 
-    // Determine quorum votes needed
     let needed_quorum_votes = config.write_quorum() - 1;
 
     let cluster_responses = lally.pool.remove_kv(&operation, needed_quorum_votes).await;
@@ -245,9 +247,9 @@ async fn remove_kv(
     };
 
     info!(key = %operation.key, quorum_state = %quorum_state);
-    // Check if the key was removed
-    let mut is_removed = remove_response.success;
 
+    // Check if the key was removed, on atleast one of a node in pool
+    let mut is_removed = remove_response.success;
     if !is_removed {
         for response in &cluster_responses {
             if response.is_removed {
@@ -268,7 +270,6 @@ async fn remove_kv(
         )
     };
 
-    // Prepare JSON response with the appropriate logs
     HttpResponse::Ok().json(json!({
         "status": quorum_state,
         "key": operation.key,
@@ -285,6 +286,7 @@ async fn remove_kv(
         "message": message
     }))
 }
+
 async fn greet() -> impl Responder {
     "Hello World! from lally"
 }
@@ -294,6 +296,7 @@ pub async fn run(lally: Arc<Lally>, config: Config) -> std::io::Result<()> {
 
     info!("HTTP Server started at {}", &addr);
 
+    // passing config as a shareable state, maybe i am retarded
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(Arc::clone(&lally)))

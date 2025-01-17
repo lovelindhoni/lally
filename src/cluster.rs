@@ -17,6 +17,8 @@ use tonic::{Request, Response, Status};
 use tracing::{error, info};
 
 fn convert_to_operation(request: KvOperation) -> Operation {
+    // this of a fn would convert the grpc kvOperation to Operation struct which is widely
+    // used in lally, my retardness...
     Operation {
         name: request.name,
         level: request.level,
@@ -33,7 +35,7 @@ pub struct GrpcServer {
 
 impl GrpcServer {
     pub async fn run(lally: Arc<Lally>) -> Result<()> {
-        let addr = "0.0.0.0:50071"
+        let addr = "0.0.0.0:50071" // yes, i have hardcoded the port now, for good reasons
             .parse()
             .context("Failed to parse addr for the GRPC server")?;
         let my_cluster = GrpcServer { lally };
@@ -111,16 +113,15 @@ impl ClusterManagement for GrpcServer {
         &self,
         request: Request<NoContentRequest>,
     ) -> Result<Response<JoinResponse>, Status> {
+        // getting the addr of the client node that is trying to join the cluster
         let mut client_addr = request.remote_addr().unwrap();
         client_addr.set_port(50071);
 
         let client_addr_str = client_addr.to_string();
         info!("Client {} attempting to join cluster", client_addr_str);
 
+        // gossiping the client node addr
         self.lally.pool.gossip(client_addr_str.clone()).await;
-
-        let server_nodes_ip: Vec<String> = self.lally.pool.get_ips().await;
-        let store_data = self.lally.store.export_store();
 
         self.lally
             .pool
@@ -133,9 +134,14 @@ impl ClusterManagement for GrpcServer {
 
         info!("Client {} successfully joined the cluster", client_addr_str);
 
+        // we are packing up the store data and the nodes connected in the cluster rn and send it
+        // to the client node so that it could also replicate
+        let nodes_addrs: Vec<String> = self.lally.pool.get_addrs().await;
+        let store_data = self.lally.store.export_store();
+
         Ok(Response::new(JoinResponse {
             message: "Joined successfully".to_string(),
-            addresses: server_nodes_ip,
+            addresses: nodes_addrs,
             store_data,
         }))
     }

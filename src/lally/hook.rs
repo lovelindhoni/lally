@@ -26,6 +26,7 @@ impl Hooks {
 
         info!(key = %operation.key, "Invoking hooks for the {} operation", operation.name);
         // only log if hooks fails, currently the aof hook which is the only one, doesn't fail
+        // (hopefully)
         for hook in hooks.iter() {
             hook.invoke(operation);
         }

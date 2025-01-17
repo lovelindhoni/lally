@@ -10,7 +10,7 @@ use std::sync::Arc;
 use store::Store;
 use tokio::signal::ctrl_c;
 use tokio::signal::unix::{signal, SignalKind};
-use tracing::{info, instrument};
+use tracing::info;
 
 #[derive(Clone)]
 pub struct Lally {
@@ -20,7 +20,6 @@ pub struct Lally {
 }
 
 impl Lally {
-    #[instrument(level = "info", skip(config))]
     pub async fn new(config: &Config) -> Result<Arc<Self>> {
         let lally = Arc::new(Lally {
             store: Arc::new(
@@ -38,7 +37,6 @@ impl Lally {
         Ok(lally)
     }
 
-    #[instrument(level = "info", skip(lally))]
     async fn shutdown(lally: Arc<Lally>) {
         // Set up signal handling
         let mut sigterm = signal(SignalKind::interrupt()).unwrap();
@@ -55,8 +53,7 @@ impl Lally {
         // Log graceful shutdown and perform cleanup
         info!("Graceful shutdown started...");
         lally.pool.leave().await;
-        // Exit after cleanup
-        info!("Exiting the process");
+        info!("Exiting Lally");
         std::process::exit(0);
     }
 }

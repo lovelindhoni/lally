@@ -1,6 +1,6 @@
 use crate::cluster::services::KvData;
 use crate::utils::Operation;
-use crate::utils::{compare_timestamps, parse_log_line, KVResult};
+use crate::utils::{compare_timestamps, parse_aof_log, KVResult};
 use anyhow::{Context, Result};
 use dashmap::DashMap;
 use prost_types::Timestamp;
@@ -8,14 +8,13 @@ use std::cmp::Ordering;
 use std::path::Path;
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info};
 
 pub struct Store {
     store: DashMap<String, (String, Timestamp, bool)>,
 }
 
 impl Store {
-    #[instrument(level = "info", skip(log_path))]
     pub async fn new(log_path: &Path) -> Result<Self> {
         // Log when the store is being created
         info!(
@@ -36,7 +35,6 @@ impl Store {
         Ok(store)
     }
 
-    #[instrument(level = "debug", skip(self, log_path))]
     async fn replay_aof(&self, log_path: &Path) -> Result<()> {
         // Log the start of the AOF replay
         info!("Starting AOF replay from {:?}", log_path);
@@ -57,7 +55,7 @@ impl Store {
 
         while let Some(line) = lines.next_line().await? {
             line_count += 1;
-            if let Ok(operation) = parse_log_line(&line) {
+            if let Ok(operation) = parse_aof_log(&line) {
                 match operation.name.as_str() {
                     "ADD" => {
                         if let Some(value) = operation.value {
@@ -182,6 +180,7 @@ impl Store {
         match get_kv {
             Some(value) => {
                 if value.2 {
+                    // if the kv is found and marked as valid alone
                     info!("Key '{}' found with valid value", operation.key);
                     KVResult {
                         success: true,
