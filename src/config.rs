@@ -127,7 +127,7 @@ impl Config {
             .context("Failed to create data directory")?;
 
         let mut aof_storage_path = project_dirs.data_dir().to_path_buf();
-        aof_storage_path.push("lallylog.txt");
+        aof_storage_path.push("aof.txt");
         self.aof_storage_path = aof_storage_path;
 
         // If fresh start is requested, handle accordingly
