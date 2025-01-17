@@ -53,7 +53,10 @@ impl GrpcServer {
 
 #[tonic::async_trait]
 impl KvStore for GrpcServer {
-    async fn get(&self, request: Request<KvOperation>) -> Result<Response<GetKvResponse>, Status> {
+    async fn get_kv(
+        &self,
+        request: Request<KvOperation>,
+    ) -> Result<Response<GetKvResponse>, Status> {
         let operation = convert_to_operation(request.into_inner());
 
         let get_response = self.lally.store.get(&operation);
@@ -64,7 +67,10 @@ impl KvStore for GrpcServer {
         }))
     }
 
-    async fn add(&self, request: Request<KvOperation>) -> Result<Response<AddKvResponse>, Status> {
+    async fn add_kv(
+        &self,
+        request: Request<KvOperation>,
+    ) -> Result<Response<AddKvResponse>, Status> {
         let operation = convert_to_operation(request.into_inner());
 
         self.lally.hooks.invoke_all(&operation).await;
@@ -76,7 +82,7 @@ impl KvStore for GrpcServer {
         }))
     }
 
-    async fn remove(
+    async fn remove_kv(
         &self,
         request: Request<KvOperation>,
     ) -> Result<Response<RemoveKvResponse>, Status> {
@@ -134,7 +140,7 @@ impl ClusterManagement for GrpcServer {
         }))
     }
 
-    async fn remove(
+    async fn remove_node(
         &self,
         request: Request<NoContentRequest>,
     ) -> Result<Response<RemoveNodeResponse>, Status> {
@@ -156,7 +162,7 @@ impl ClusterManagement for GrpcServer {
         }))
     }
 
-    async fn add(
+    async fn add_node(
         &self,
         request: Request<AddNodeRequest>,
     ) -> Result<Response<AddNodeResponse>, Status> {

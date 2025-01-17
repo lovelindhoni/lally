@@ -52,7 +52,7 @@ impl Connections {
             let request = Request::new(NoContentRequest {});
             futures_set.spawn(async move {
                 let mut conn = ClusterManagementClient::new(channel);
-                match conn.remove(request).await {
+                match conn.remove_node(request).await {
                     Ok(msg) => {
                         info!(ip = %ip, "Successfully removed node: {}", msg.into_inner().message)
                     }
@@ -168,7 +168,7 @@ impl Connections {
             futures_set.spawn(async move {
                 info!("Gossiping to node with address: {}", addr);
                 let mut conn = ClusterManagementClient::new(channel);
-                match conn.add(request).await {
+                match conn.add_node(request).await {
                     Ok(msg) => {
                         info!("Successfully added node: {}", addr);
                         debug!("{}", msg.into_inner().message);
@@ -246,7 +246,7 @@ impl Connections {
             let channel = channel.clone();
             futures_set.spawn(async move {
                 let mut conn = KvStoreClient::new(channel);
-                match conn.get(request).await {
+                match conn.get_kv(request).await {
                     Ok(response) => {
                         info!("Successfully retrieved key from {}: {:?}", ip, response);
                         Ok((ip, response.into_inner()))
@@ -309,7 +309,7 @@ impl Connections {
             let channel = channel.clone();
             futures_set.spawn(async move {
                 let mut conn = KvStoreClient::new(channel);
-                match conn.remove(request).await {
+                match conn.remove_kv(request).await {
                     Ok(response) => Ok(response.into_inner()),
                     Err(e) => Err(e.to_string()),
                 }
@@ -348,7 +348,7 @@ impl Connections {
         match self.conn_make(ip).await {
             Ok(channel) => {
                 let mut conn = KvStoreClient::new(channel);
-                match conn.add(Request::new(request)).await {
+                match conn.add_kv(Request::new(request)).await {
                     Ok(response) => {
                         info!(
                             "Successfully added key: {} with response: {:?}",
@@ -377,7 +377,7 @@ impl Connections {
         match self.conn_make(ip).await {
             Ok(channel) => {
                 let mut conn = KvStoreClient::new(channel);
-                match conn.remove(Request::new(request)).await {
+                match conn.remove_kv(Request::new(request)).await {
                     Ok(response) => {
                         info!(
                             "Successfully removed key: {} with response: {:?}",
@@ -424,7 +424,7 @@ impl Connections {
             futures_set.spawn(async move {
                 info!("Sending ADD request to IP: {}", ip);
                 let mut conn = KvStoreClient::new(channel);
-                match conn.add(request).await {
+                match conn.add_kv(request).await {
                     Ok(response) => {
                         info!("Successfully added key to {}: {:?}", ip, response);
                         Ok(response.into_inner())

@@ -22,8 +22,8 @@ message AddNodeResponse { string message = 1; }
 message RemoveNodeResponse { string message = 1; }
 
 service ClusterManagement {
-  rpc add(AddNodeRequest) returns (AddNodeResponse);
-  rpc remove(NoContentRequest) returns (RemoveNodeResponse);
+  rpc add_node(AddNodeRequest) returns (AddNodeResponse);
+  rpc remove_node(NoContentRequest) returns (RemoveNodeResponse);
   rpc join(NoContentRequest) returns (JoinResponse);
 }
 
@@ -45,7 +45,7 @@ message GetKVResponse {
 }
 
 service KVStore {
-  rpc add(KVOperation) returns (AddKVResponse);
-  rpc remove(KVOperation) returns (RemoveKVResponse);
-  rpc get(KVOperation) returns (GetKVResponse);
+  rpc add_kv(KVOperation) returns (AddKVResponse);
+  rpc remove_kv(KVOperation) returns (RemoveKVResponse);
+  rpc get_kv(KVOperation) returns (GetKVResponse);
 }
