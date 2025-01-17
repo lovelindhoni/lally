@@ -4,11 +4,11 @@ use std::sync::Arc;
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::time::{interval, Duration};
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use super::Hook;
 use crate::config::Config;
-use crate::utils::CreateTimestamp;
+use crate::utils::timestamp_to_rfc3339;
 use crate::utils::Operation;
 
 pub struct AppendOnlyLog {
@@ -21,7 +21,7 @@ impl Hook for AppendOnlyLog {
     fn invoke(&self, operation: &Operation) {
         let mut operation_log = format!(
             "timestamp={} operation={} level={} key=\"{}\"",
-            CreateTimestamp::to_rfc3339(&operation.timestamp),
+            timestamp_to_rfc3339(&operation.timestamp),
             operation.name,
             operation.level,
             operation.key,
@@ -32,7 +32,7 @@ impl Hook for AppendOnlyLog {
         }
 
         self.buffer.push(operation_log);
-        info!(
+        debug!(
             "Operation {} added to log buffer for key: {}",
             operation.name, operation.key
         );

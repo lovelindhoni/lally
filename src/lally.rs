@@ -16,7 +16,7 @@ use tracing::{info, instrument};
 pub struct Lally {
     pub store: Arc<Store>,
     pub hooks: Arc<Hooks>,
-    pub cluster: Arc<Connections>,
+    pub pool: Arc<Connections>,
 }
 
 impl Lally {
@@ -29,7 +29,7 @@ impl Lally {
                     .context("Failed to create store")?,
             ),
             hooks: Arc::new(Hooks::default()),
-            cluster: Arc::new(Connections::default()),
+            pool: Arc::new(Connections::default()),
         });
 
         // Spawn a shutdown task
@@ -54,7 +54,7 @@ impl Lally {
 
         // Log graceful shutdown and perform cleanup
         info!("Graceful shutdown started...");
-        lally.cluster.leave().await;
+        lally.pool.leave().await;
         // Exit after cleanup
         info!("Exiting the process");
         std::process::exit(0);

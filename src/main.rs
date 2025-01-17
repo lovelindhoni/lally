@@ -12,7 +12,7 @@ use crate::lally::Lally;
 use std::sync::Arc;
 use tracing::{error, info, warn};
 
-const LOGO: &'static str = r#"
+const LOGO: &str = r#"
  
  ██╗      █████╗ ██╗     ██╗  ██╗   ██╗
  ██║     ██╔══██╗██║     ██║  ╚██╗ ██╔╝
@@ -27,11 +27,8 @@ const LOGO: &'static str = r#"
 
 #[tokio::main]
 async fn main() {
-    // Initialize the tracing subscriber for logging
     tracing_subscriber::fmt().without_time().init();
 
-    // Log the logo information (at the info level)
-    info!("Starting application...");
     println!("{LOGO}");
 
     // Log the loading configuration step
@@ -47,9 +44,9 @@ async fn main() {
             };
 
             // Running gRPC server
-            info!("Running gRPC server...");
+            info!("Starting gRPC server...");
             if let Err(e) = GrpcServer::run(Arc::clone(&lally)).await {
-                error!("Failed to run gRPC server: {}", e);
+                error!("Failed to start gRPC server: {}", e);
                 return;
             }
 
@@ -57,7 +54,7 @@ async fn main() {
             match config.ip() {
                 Some(ip) => {
                     info!("Attempting to join cluster with IP: {}", ip);
-                    match lally.cluster.join(ip.to_string()).await {
+                    match lally.pool.join(ip.to_string()).await {
                         Ok(store_data) => {
                             info!("Successfully joined cluster.");
                             lally.store.import_store(store_data);

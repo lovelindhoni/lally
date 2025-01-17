@@ -117,13 +117,13 @@ impl ClusterManagement for GrpcServer {
         let client_addr_str = client_addr.to_string();
         info!("Client {} attempting to join cluster", client_addr_str);
 
-        self.lally.cluster.gossip(client_addr_str.clone()).await;
+        self.lally.pool.gossip(client_addr_str.clone()).await;
 
-        let server_nodes_ip: Vec<String> = self.lally.cluster.get_ips().await;
+        let server_nodes_ip: Vec<String> = self.lally.pool.get_ips().await;
         let store_data = self.lally.store.export_store();
 
         self.lally
-            .cluster
+            .pool
             .conn_make(&client_addr_str)
             .await
             .map_err(|e| {
@@ -150,7 +150,7 @@ impl ClusterManagement for GrpcServer {
 
         info!("Attempting to remove node {}", client_ip);
 
-        self.lally.cluster.remove(&client_ip).await.map_err(|err| {
+        self.lally.pool.remove(&client_ip).await.map_err(|err| {
             error!("Failed to remove node {}: {}", client_ip, err);
             Status::internal(format!("Failed to remove node: {}", err))
         })?;
@@ -170,14 +170,10 @@ impl ClusterManagement for GrpcServer {
 
         info!("Attempting to add node {}", new_commer);
 
-        self.lally
-            .cluster
-            .conn_make(&new_commer)
-            .await
-            .map_err(|e| {
-                error!("Failed to add node {}: {}", new_commer, e);
-                Status::invalid_argument(format!("Failed to add node: {}", e))
-            })?;
+        self.lally.pool.conn_make(&new_commer).await.map_err(|e| {
+            error!("Failed to add node {}: {}", new_commer, e);
+            Status::invalid_argument(format!("Failed to add node: {}", e))
+        })?;
 
         info!("Node {} added successfully", new_commer);
 

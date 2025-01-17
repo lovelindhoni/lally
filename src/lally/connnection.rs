@@ -211,7 +211,7 @@ impl Connections {
             }
             Err(err) => {
                 error!("Failed to join cluster through seed node {}: {}", addr, err);
-                return Err(anyhow!("Failed to join cluster through seed node").into());
+                return Err(anyhow!("Failed to join cluster through seed node"));
             }
         };
         let message = response.into_inner();

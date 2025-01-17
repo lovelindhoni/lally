@@ -39,36 +39,31 @@ pub fn parse_log_line(line: &str) -> Result<Operation> {
         key,
         value,
         level,
-        timestamp: CreateTimestamp::from_rfc3339(timestamp)
+        timestamp: timestamp_from_rfc3339(timestamp)
             .context("failed to parse rfc3339 to Timestamp")?,
     })
 }
-
-pub struct CreateTimestamp {}
-
-impl CreateTimestamp {
-    pub fn new() -> Timestamp {
-        let now = Utc::now();
-        Timestamp {
-            seconds: now.timestamp(),
-            nanos: now.timestamp_subsec_nanos() as i32,
-        }
+pub fn create_timestamp() -> Timestamp {
+    let now = Utc::now();
+    Timestamp {
+        seconds: now.timestamp(),
+        nanos: now.timestamp_subsec_nanos() as i32,
     }
-    pub fn from_rfc3339(rfc3339: &str) -> Result<Timestamp, chrono::ParseError> {
-        let datetime = DateTime::parse_from_rfc3339(rfc3339)?;
-        let datetime_utc = datetime.with_timezone(&Utc);
-        Ok(Timestamp {
-            seconds: datetime_utc.timestamp(),
-            nanos: datetime_utc.timestamp_subsec_nanos() as i32,
-        })
-    }
-    pub fn to_rfc3339(timestamp: &Timestamp) -> String {
-        let naive = Utc
-            .timestamp_opt(timestamp.seconds, timestamp.nanos as u32)
-            .single()
-            .expect("Invalid timestamp");
-        naive.to_rfc3339()
-    }
+}
+pub fn timestamp_from_rfc3339(rfc3339: &str) -> Result<Timestamp, chrono::ParseError> {
+    let datetime = DateTime::parse_from_rfc3339(rfc3339)?;
+    let datetime_utc = datetime.with_timezone(&Utc);
+    Ok(Timestamp {
+        seconds: datetime_utc.timestamp(),
+        nanos: datetime_utc.timestamp_subsec_nanos() as i32,
+    })
+}
+pub fn timestamp_to_rfc3339(timestamp: &Timestamp) -> String {
+    let naive = Utc
+        .timestamp_opt(timestamp.seconds, timestamp.nanos as u32)
+        .single()
+        .expect("Invalid timestamp");
+    naive.to_rfc3339()
 }
 
 #[derive(Debug)]

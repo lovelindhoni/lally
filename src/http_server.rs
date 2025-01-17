@@ -1,8 +1,7 @@
 use crate::cluster::services::GetKvResponse;
 use crate::config::Config;
 use crate::lally::Lally;
-use crate::utils::Operation;
-use crate::utils::{compare_timestamps, CreateTimestamp};
+use crate::utils::{compare_timestamps, create_timestamp, timestamp_to_rfc3339, Operation};
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use serde::Deserialize;
 use serde_json::json;
@@ -21,7 +20,7 @@ fn build_operation(payload: &Payload, operation_type: &str) -> Operation {
         value: payload.value.clone(),
         level: String::from("INFO"),
         name: String::from(operation_type),
-        timestamp: CreateTimestamp::new(),
+        timestamp: create_timestamp(),
     }
 }
 
@@ -52,7 +51,7 @@ async fn add_kv(
 
     info!(key = %operation.key, "Added key to local store, timestamp: {}", response_timestamp);
     let needed_quorum_votes = config.write_quorum() - 1;
-    let cluster_responses = lally.cluster.add_kv(&operation, needed_quorum_votes).await;
+    let cluster_responses = lally.pool.add_kv(&operation, needed_quorum_votes).await;
 
     let is_quorum_achieved = cluster_responses.len() == needed_quorum_votes;
 
@@ -69,7 +68,7 @@ async fn add_kv(
         "status": quorum_state,
         "key": payload.key,
         "value": payload.value,
-        "timestamp": CreateTimestamp::to_rfc3339(&response_timestamp),
+        "timestamp": timestamp_to_rfc3339(&response_timestamp),
         "quorum": {
             "required": config.write_quorum(),
             "achieved": cluster_responses.len() + 1
@@ -98,7 +97,7 @@ async fn get_kv(
     info!(key = %operation.key, "Retrieving key from local store");
     let get_op = lally.store.get(&operation);
 
-    let mut cluster_responses = lally.cluster.get_kv(&operation, needed_quorum_votes).await;
+    let mut cluster_responses = lally.pool.get_kv(&operation, needed_quorum_votes).await;
     let get_op_converted = GetKvResponse {
         value: get_op.value,
         timestamp: get_op.timestamp,
@@ -118,7 +117,7 @@ async fn get_kv(
     let max_timestamp = cluster_responses
         .iter()
         .filter_map(|(_, response)| response.timestamp)
-        .max_by(|a, b| compare_timestamps(a, b));
+        .max_by(compare_timestamps);
 
     let nodes_with_latest_timestamp: Vec<&String> = cluster_responses
         .iter()
@@ -135,7 +134,7 @@ async fn get_kv(
             debug!("Read repair triggered for nodes with outdated data");
             // Step 5: Replicate to nodes with older or missing timestamps
             for (ip, _response) in &cluster_responses {
-                if nodes_with_latest_timestamp.contains(&&ip) {
+                if nodes_with_latest_timestamp.contains(&ip) {
                     // Skip nodes with the latest timestamp
                     continue;
                 }
@@ -159,7 +158,7 @@ async fn get_kv(
                                 let _ = lally_clone.store.add(&read_repair_operation);
                             } else {
                                 lally_clone
-                                    .cluster
+                                    .pool
                                     .solo_add_kv(&read_repair_operation, &ip)
                                     .await;
                                 // remote grpc add_kv call
@@ -174,7 +173,7 @@ async fn get_kv(
                                 let _ = lally_clone.store.remove(&read_repair_operation);
                             } else {
                                 lally_clone
-                                    .cluster
+                                    .pool
                                     .solo_remove_kv(&read_repair_operation, &ip)
                                     .await;
                                 // remote grpc remove_kv call
@@ -190,7 +189,7 @@ async fn get_kv(
                         "status": quorum_state,
                         "key": operation.key,
                         "value": value,
-                        "timestamp": CreateTimestamp::to_rfc3339(&latest_timestamp),
+                        "timestamp": timestamp_to_rfc3339(&latest_timestamp),
                         "quorum": {
                             "required": config.read_quorum(),
                             "achieved": cluster_responses.len()
@@ -236,10 +235,7 @@ async fn remove_kv(
     // Determine quorum votes needed
     let needed_quorum_votes = config.write_quorum() - 1;
 
-    let cluster_responses = lally
-        .cluster
-        .remove_kv(&operation, needed_quorum_votes)
-        .await;
+    let cluster_responses = lally.pool.remove_kv(&operation, needed_quorum_votes).await;
 
     let is_quorum_achieved = cluster_responses.len() == needed_quorum_votes;
     let quorum_state = if is_quorum_achieved {
@@ -278,7 +274,7 @@ async fn remove_kv(
         "key": operation.key,
         "value": if is_removed { remove_response.value } else { None },
         "timestamp": if is_removed {
-            Some(CreateTimestamp::to_rfc3339(&operation.timestamp))
+            Some(timestamp_to_rfc3339(&operation.timestamp))
         } else {
             None
         },

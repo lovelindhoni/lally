@@ -124,7 +124,7 @@ impl Store {
         let timestamp = operation.timestamp;
         let value = operation.value.as_ref().expect("value will be present");
 
-        info!(
+        debug!(
             "Performing ADD operation for key '{}' with value '{}'",
             key, value
         );
@@ -141,7 +141,7 @@ impl Store {
     pub fn remove(&self, operation: &Operation) -> KVResult {
         let remove_kv = self.store.get_mut(&operation.key);
 
-        info!("Performing REMOVE operation for key '{}'", operation.key);
+        debug!("Performing REMOVE operation for key '{}'", operation.key);
 
         if let Some(mut value) = remove_kv {
             if !value.2 {
