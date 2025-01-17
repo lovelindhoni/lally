@@ -1,17 +1,17 @@
 use crate::hooks::Hook;
 use crate::utils::Operation;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tracing::{info, span, Level};
 
 #[derive(Default)]
 pub struct Hooks {
-    hooks: Mutex<Vec<Arc<dyn Hook>>>,
+    hooks: RwLock<Vec<Arc<dyn Hook>>>,
 }
 
 impl Hooks {
     pub async fn register(&self, hook: Arc<dyn Hook>) {
-        let mut lock_hooks = self.hooks.lock().await;
+        let mut lock_hooks = self.hooks.write().await;
         lock_hooks.push(hook);
         info!(
             "Hook registered successfully, total hooks: {}",
@@ -20,7 +20,7 @@ impl Hooks {
     }
 
     pub async fn invoke_all(&self, operation: &Operation) {
-        let hooks = self.hooks.lock().await;
+        let hooks = self.hooks.read().await;
         let trace_span = span!(Level::INFO, "HOOKS");
         let _enter = trace_span.enter();
 
