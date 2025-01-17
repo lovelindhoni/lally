@@ -10,27 +10,78 @@ use crate::config::Config;
 use crate::hooks::aof::AppendOnlyLog;
 use crate::lally::Lally;
 use std::sync::Arc;
+use tracing::{error, info, warn};
+
+const LOGO: &'static str = r#"
+ 
+ ██╗      █████╗ ██╗     ██╗  ██╗   ██╗
+ ██║     ██╔══██╗██║     ██║  ╚██╗ ██╔╝
+ ██║     ███████║██║     ██║   ╚████╔╝
+ ██║     ██╔══██║██║     ██║    ╚██╔╝
+ ███████╗██║  ██║███████╗███████╗██║
+ ╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝╚═╝
+ 
+ An In-Memory key-value DB, trying its best
+ to achieve availability
+ "#;
 
 #[tokio::main]
 async fn main() {
-    let config = Config::new().await.unwrap();
-    let lally = Lally::new(&config).await.unwrap();
+    // Initialize the tracing subscriber for logging
+    tracing_subscriber::fmt().without_time().init();
 
-    GrpcServer::run(Arc::clone(&lally)).await;
-    match config.ip() {
-        Some(ip) => {
-            let join_response = lally.cluster.join(ip.to_string()).await;
-            if let Ok(store_data) = join_response {
-                lally.store.import_store(store_data);
+    // Log the logo information (at the info level)
+    info!("Starting application...");
+    println!("{LOGO}");
+
+    // Log the loading configuration step
+    match Config::new().await {
+        Ok(config) => {
+            info!("Configuration loaded successfully.");
+            let lally = match Lally::new(&config).await {
+                Ok(lally) => lally,
+                Err(e) => {
+                    error!("Failed to initialize Lally: {}", e);
+                    return;
+                }
+            };
+
+            // Running gRPC server
+            info!("Running gRPC server...");
+            if let Err(e) = GrpcServer::run(Arc::clone(&lally)).await {
+                error!("Failed to run gRPC server: {}", e);
+                return;
+            }
+
+            // Handle joining the cluster if an IP is provided
+            match config.ip() {
+                Some(ip) => {
+                    info!("Attempting to join cluster with IP: {}", ip);
+                    match lally.cluster.join(ip.to_string()).await {
+                        Ok(store_data) => {
+                            info!("Successfully joined cluster.");
+                            lally.store.import_store(store_data);
+                        }
+                        Err(e) => {
+                            error!("Failed to join cluster: {}", e);
+                        }
+                    };
+                }
+                None => {
+                    warn!("No seed node address provided; this node will act as the first node in the cluster.");
+                }
+            }
+
+            let wal_hook = AppendOnlyLog::init(&config).await;
+            lally.hooks.register(wal_hook).await;
+
+            if let Err(e) = http_server::run(Arc::clone(&lally), config).await {
+                error!("Failed to run HTTP server: {}", e);
+                return;
             }
         }
-        None => println!("no seed node address given, this would act as the first node of cluster"),
-    };
-
-    let wal_hook = AppendOnlyLog::init(&config).await;
-    lally.hooks.register(wal_hook).await;
-
-    http_server::run(Arc::clone(&lally), config).await.unwrap();
-
-    // println!("Hello, world!");
+        Err(e) => {
+            error!("Failed to load configuration: {}", e);
+        }
+    }
 }

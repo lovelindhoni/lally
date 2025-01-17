@@ -3,13 +3,14 @@ pub mod hook;
 pub mod store;
 
 use crate::config::Config;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use connnection::Connections;
 use hook::Hooks;
 use std::sync::Arc;
 use store::Store;
 use tokio::signal::ctrl_c;
 use tokio::signal::unix::{signal, SignalKind};
+use tracing::{info, instrument};
 
 #[derive(Clone)]
 pub struct Lally {
@@ -19,26 +20,43 @@ pub struct Lally {
 }
 
 impl Lally {
+    #[instrument(level = "info", skip(config))]
     pub async fn new(config: &Config) -> Result<Arc<Self>> {
         let lally = Arc::new(Lally {
-            store: Arc::new(Store::new(config.aof_file()).await?),
+            store: Arc::new(
+                Store::new(config.aof_file())
+                    .await
+                    .context("Failed to create store")?,
+            ),
             hooks: Arc::new(Hooks::default()),
             cluster: Arc::new(Connections::default()),
         });
+
+        // Spawn a shutdown task
         tokio::spawn(Self::shutdown(Arc::clone(&lally)));
+
         Ok(lally)
     }
 
-    // i might just move this shutdown logic to a seperate task manager like module
+    #[instrument(level = "info", skip(lally))]
     async fn shutdown(lally: Arc<Lally>) {
-        // idk whether i should handle SIGQUIT too...
+        // Set up signal handling
         let mut sigterm = signal(SignalKind::interrupt()).unwrap();
+
         tokio::select! {
-            _ = ctrl_c() => {},
-            _ = sigterm.recv() => {},
+            _ = ctrl_c() => {
+                info!("Received Ctrl+C signal");
+            },
+            _ = sigterm.recv() => {
+                info!("Received SIGINT signal");
+            },
         }
-        println!("shutdown(gracefull) started...");
+
+        // Log graceful shutdown and perform cleanup
+        info!("Graceful shutdown started...");
         lally.cluster.leave().await;
+        // Exit after cleanup
+        info!("Exiting the process");
         std::process::exit(0);
     }
 }

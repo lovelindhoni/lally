@@ -71,6 +71,7 @@ impl CreateTimestamp {
     }
 }
 
+#[derive(Debug)]
 pub struct Operation {
     pub name: String,
     pub level: String,

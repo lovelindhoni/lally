@@ -4,13 +4,16 @@ use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tokio::fs::{canonicalize, copy, create_dir_all, read_to_string, OpenOptions};
+use tracing::{debug, info};
 
 fn default_r_quorum() -> usize {
     1
 }
+
 fn default_w_quorum() -> usize {
     1
 }
+
 fn default_port() -> u32 {
     3000
 }
@@ -81,27 +84,34 @@ impl Config {
         // Override with CLI arguments if present
         if let Some(fresh) = cli_args.fresh {
             config.fresh = fresh;
+            info!("Fresh start requested.");
         }
         if let Some(path) = cli_args.replay_log {
+            info!("Replay log file set: {:?}", path);
             config.replay_log = Some(path);
         }
         if let Some(ip) = cli_args.ip {
+            info!("Seed node IP: {}", ip);
             config.ip = Some(ip);
         }
         if let Some(port) = cli_args.port {
             config.port = port;
+            info!("Server port set to: {}", port);
         }
         if let Some(read_quorum) = cli_args.read_quorum {
             config.read_quorum = read_quorum;
+            info!("Read quorum set to: {}", read_quorum);
         }
         if let Some(write_quorum) = cli_args.write_quorum {
             config.write_quorum = write_quorum;
+            info!("Write quorum set to: {}", write_quorum);
         }
 
         // Initialize project directories and handle log file
         config.initialize_log_file().await?;
 
-        println!("{:?}", config);
+        debug!("Final configuration: {:?}", config);
+
         Ok(config)
     }
 
@@ -109,6 +119,8 @@ impl Config {
         // Get project directory
         let project_dirs = ProjectDirs::from("com", "Lally", "Lally")
             .context("Could not find project directories")?;
+
+        info!("Found project directory at: {:?}", project_dirs.data_dir());
 
         create_dir_all(project_dirs.data_dir())
             .await
@@ -118,6 +130,7 @@ impl Config {
         aof_storage_path.push("lallylog.txt");
         self.aof_storage_path = aof_storage_path;
 
+        // If fresh start is requested, handle accordingly
         if self.fresh && self.replay_log.is_some() {
             bail!("Don't specify replay log file when starting fresh");
         }
@@ -130,11 +143,12 @@ impl Config {
                 .truncate(true)
                 .open(&self.aof_storage_path)
                 .await
-                .context("Failed to create fresh aof file")?;
+                .context("Failed to create fresh AOF file")?;
+            info!("Created fresh AOF file at: {:?}", self.aof_storage_path);
             return Ok(());
         }
 
-        // Copy existing log file if path is provided
+        // Handle replay log copy if provided
         if let Some(source_path) = &self.replay_log {
             let canonical_source = canonicalize(source_path)
                 .await
@@ -142,7 +156,12 @@ impl Config {
 
             copy(&canonical_source, &self.aof_storage_path)
                 .await
-                .context("Failed to copy aof file")?;
+                .context("Failed to copy AOF file")?;
+
+            info!(
+                "Successfully copied AOF log from {:?} to {:?}",
+                source_path, self.aof_storage_path
+            );
         }
 
         Ok(())
@@ -160,9 +179,13 @@ impl Config {
                 return Ok(Self::default());
             }
         };
+
         if !config_path.exists() {
             bail!("Config file doesn't exist: {}", config_path.display());
         }
+
+        info!("Loading config file from: {:?}", config_path);
+
         let contents = read_to_string(&config_path)
             .await
             .context("Failed to read config file")?;

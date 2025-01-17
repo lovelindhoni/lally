@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::time::{interval, Duration};
+use tracing::{error, info};
 
 use super::Hook;
 use crate::config::Config;
@@ -31,6 +32,10 @@ impl Hook for AppendOnlyLog {
         }
 
         self.buffer.push(operation_log);
+        info!(
+            "Operation {} added to log buffer for key: {}",
+            operation.name, operation.key
+        );
     }
 }
 
@@ -43,49 +48,59 @@ impl AppendOnlyLog {
         }
     }
 
-    async fn flush_logs(wal: Arc<Self>) {
+    async fn flush_logs(aof: Arc<Self>) {
         let mut file = BufWriter::new(
             OpenOptions::new()
                 .append(true)
                 .create(true)
                 .truncate(false)
-                .open(&wal.path)
+                .open(&aof.path)
                 .await
-                .expect("Failed to open WAL file"),
+                .expect("Failed to open AOF file"),
         );
-        let mut interval = interval(wal.flush_interval);
+        let mut interval = interval(aof.flush_interval);
 
         loop {
             interval.tick().await;
 
-            while let Some(log) = wal.buffer.pop() {
+            let mut written_data = false;
+
+            while let Some(log) = aof.buffer.pop() {
                 if let Err(e) = file.write_all(log.as_bytes()).await {
-                    eprintln!("Failed to write log: {}", e);
+                    error!("Failed to write log to AOF file: {}", e);
+                } else {
+                    written_data = true;
                 }
+
                 if let Err(e) = file.write_all(b"\n").await {
-                    eprintln!("Failed to write newline: {}", e);
+                    error!("Failed to write newline to AOF file: {}", e);
+                } else {
+                    written_data = true;
                 }
             }
 
-            if let Err(e) = file.flush().await {
-                eprintln!("Failed to flush WAL file: {}", e);
+            if written_data {
+                if let Err(e) = file.flush().await {
+                    error!("Failed to flush AOF file: {}", e);
+                }
             }
         }
     }
 
     pub async fn init(config: &Config) -> Arc<Self> {
-        // from config rn
-
         let flush_interval = Duration::from_millis(100);
+        info!(
+            "Initializing AppendOnlyLog with flush interval: {:?}",
+            flush_interval
+        );
 
-        let wal = Arc::new(AppendOnlyLog::new(
+        let aof = Arc::new(AppendOnlyLog::new(
             config.aof_file().to_path_buf(),
             flush_interval,
         ));
 
-        // i might move this to a seperate task manager like thing
-        tokio::spawn(Self::flush_logs(Arc::clone(&wal)));
+        tokio::spawn(Self::flush_logs(Arc::clone(&aof)));
 
-        wal
+        aof
     }
 }
