@@ -2,6 +2,21 @@
 name = "lally"
 version = "0.1.0"
 edition = "2021"
+documentation = "https://github.com/lovelindhoni/lally"
+repository = "https://github.com/lovelindhoni/lally"
+homepage = "https://github.com/lovelindhoni/lally"
+readme = "README.md"
+license = "MIT"
+keywords = ["kv-store", "db"]
+publish = false
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
 
 [build-dependencies]
 tonic-build = "0.12.3"
