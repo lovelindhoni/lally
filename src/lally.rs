@@ -1,11 +1,11 @@
-pub mod connnection;
 pub mod hook;
+pub mod pool;
 pub mod store;
 
 use crate::config::Config;
 use anyhow::{Context, Result};
-use connnection::Connections;
 use hook::Hooks;
+use pool::Pool;
 use std::sync::Arc;
 use store::Store;
 use tokio::signal::ctrl_c;
@@ -16,7 +16,7 @@ use tracing::{info, instrument};
 pub struct Lally {
     pub store: Arc<Store>,
     pub hooks: Arc<Hooks>,
-    pub pool: Arc<Connections>,
+    pub pool: Arc<Pool>,
 }
 
 impl Lally {
@@ -29,7 +29,7 @@ impl Lally {
                     .context("Failed to create store")?,
             ),
             hooks: Arc::new(Hooks::default()),
-            pool: Arc::new(Connections::default()),
+            pool: Arc::new(Pool::default()),
         });
 
         // Spawn a shutdown task

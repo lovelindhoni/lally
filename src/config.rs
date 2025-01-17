@@ -35,7 +35,7 @@ pub struct CliArgs {
 
     /// ipv4 address of seed node
     #[argh(option)]
-    ip: Option<String>,
+    addr: Option<String>,
 
     /// custom port for server, default is 3000
     #[argh(option)]
@@ -58,7 +58,7 @@ pub struct Config {
     #[serde(default)]
     replay_log: Option<PathBuf>,
 
-    ip: Option<String>,
+    addr: Option<String>,
 
     #[serde(default = "default_port")]
     port: u32,
@@ -90,9 +90,9 @@ impl Config {
             info!("Replay log file set: {:?}", path);
             config.replay_log = Some(path);
         }
-        if let Some(ip) = cli_args.ip {
-            info!("Seed node IP: {}", ip);
-            config.ip = Some(ip);
+        if let Some(addr) = cli_args.addr {
+            info!("Seed node address: {}", addr);
+            config.addr = Some(addr);
         }
         if let Some(port) = cli_args.port {
             config.port = port;
@@ -193,8 +193,8 @@ impl Config {
         serde_yaml::from_str(&contents).context("Failed to parse config file")
     }
 
-    pub fn ip(&self) -> Option<&str> {
-        self.ip.as_deref()
+    pub fn addr(&self) -> Option<&str> {
+        self.addr.as_deref()
     }
     pub fn port(&self) -> u32 {
         self.port
@@ -215,7 +215,7 @@ impl Default for Config {
         Self {
             fresh: false,
             replay_log: None,
-            ip: None,
+            addr: None,
             port: default_port(),
             read_quorum: default_r_quorum(),
             write_quorum: default_w_quorum(),

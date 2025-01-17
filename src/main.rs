@@ -31,7 +31,6 @@ async fn main() {
 
     println!("{LOGO}");
 
-    // Log the loading configuration step
     match Config::new().await {
         Ok(config) => {
             info!("Configuration loaded successfully.");
@@ -43,18 +42,17 @@ async fn main() {
                 }
             };
 
-            // Running gRPC server
             info!("Starting gRPC server...");
             if let Err(e) = GrpcServer::run(Arc::clone(&lally)).await {
                 error!("Failed to start gRPC server: {}", e);
                 return;
             }
 
-            // Handle joining the cluster if an IP is provided
-            match config.ip() {
-                Some(ip) => {
-                    info!("Attempting to join cluster with IP: {}", ip);
-                    match lally.pool.join(ip.to_string()).await {
+            // Joining the cluster if a seed node addr is provided
+            match config.addr() {
+                Some(addr) => {
+                    info!("Attempting to join cluster on address: {}", addr);
+                    match lally.pool.join(addr.to_string()).await {
                         Ok(store_data) => {
                             info!("Successfully joined cluster.");
                             lally.store.import_store(store_data);

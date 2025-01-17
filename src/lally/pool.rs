@@ -17,19 +17,19 @@ use tracing::{debug, error, info, span, Level};
 // this module needs some good refactoring
 
 #[derive(Default)]
-pub struct Connections {
-    pub cluster: Arc<RwLock<HashMap<String, Channel>>>,
+pub struct Pool {
+    pub pool: Arc<RwLock<HashMap<String, Channel>>>,
 }
 
-impl Connections {
+impl Pool {
     pub async fn get_ips(&self) -> Vec<String> {
-        let cluster = self.cluster.read().await;
-        cluster.keys().cloned().collect()
+        let pool = self.pool.read().await;
+        pool.keys().cloned().collect()
     }
     pub async fn remove(&self, ip: &String) -> Result<String> {
-        let mut cluster = self.cluster.write().await;
+        let mut pool = self.pool.write().await;
 
-        match cluster.remove(ip) {
+        match pool.remove(ip) {
             Some(_channel) => {
                 info!(ip = %ip, "Node removed successfully");
                 Ok("Removed Node".to_string())
@@ -41,10 +41,10 @@ impl Connections {
         }
     }
     pub async fn leave(&self) {
-        let cluster = self.cluster.write().await;
+        let pool = self.pool.write().await;
         info!("Starting to leave the cluster");
         let mut futures_set = JoinSet::new();
-        for (ip, channel) in cluster.iter() {
+        for (ip, channel) in pool.iter() {
             let channel = channel.clone();
             let ip = ip.clone();
             let remove_span = span!(Level::INFO, "remove_node", ip = %ip);
@@ -68,18 +68,18 @@ impl Connections {
         let conn_span = span!(Level::INFO, "conn_make", addr = %addr);
         let _enter = conn_span.enter();
 
-        let cluster = Arc::clone(&self.cluster);
+        let pool = Arc::clone(&self.pool);
 
-        let cluster_guard = cluster.read().await;
+        let pool_gaurd = pool.read().await;
 
-        if let Some(channel) = cluster_guard.get(addr) {
+        if let Some(channel) = pool_gaurd.get(addr) {
             return Ok(channel.clone());
         }
 
-        drop(cluster_guard);
-        let mut cluster_guard = cluster.write().await;
+        drop(pool_gaurd);
+        let mut pool_gaurd = pool.write().await;
         // we check again, in case another thread added the node between the read and write lock
-        if let Some(channel) = cluster_guard.get(addr) {
+        if let Some(channel) = pool_gaurd.get(addr) {
             return Ok(channel.clone());
         }
         info!(
@@ -95,7 +95,7 @@ impl Connections {
             Ok(channel) => {
                 info!("Successfully connected to {}", addr);
 
-                cluster_guard.insert(addr.clone(), channel.clone());
+                pool_gaurd.insert(addr.clone(), channel.clone());
                 Ok(channel)
             }
             Err(e) => {
@@ -113,11 +113,10 @@ impl Connections {
             "Starting bulk connection setup for {} IP addresses.",
             ip_addrs.len()
         );
-        let cluster = Arc::clone(&self.cluster);
         let mut futures_set = JoinSet::new();
         for ip in ip_addrs.iter() {
             let ip = ip.clone();
-            let client_uri = format!("https://{}", ip);
+            let client_uri = format!("http://{}", ip);
             futures_set.spawn(async move {
                 let client_uri = match client_uri.parse::<Uri>() {
                     Ok(uri) => uri,
@@ -140,28 +139,29 @@ impl Connections {
             });
         }
 
+        let pool = Arc::clone(&self.pool);
         let results = futures_set.join_all().await;
         for result in results.into_iter().flatten() {
-            let mut cluster_guard = cluster.write().await;
-            cluster_guard.insert(result.0, result.1);
+            let mut pool_gaurd = pool.write().await;
+            pool_gaurd.insert(result.0, result.1);
         }
         info!("Finished processing bulk connection setup.");
     }
 
     pub async fn gossip(&self, addr: String) {
-        let gossip_span = span!(Level::INFO, "gossip", addr = addr.clone());
-        let _enter = gossip_span.enter();
+        let trace_span = span!(Level::INFO, "gossip", addr = addr.clone());
+        let _enter = trace_span.enter();
 
         info!(
             "Starting gossip to add node with address: {} to cluster",
             addr
         );
 
-        let cluster = Arc::clone(&self.cluster);
+        let pool = Arc::clone(&self.pool);
         let mut futures_set = JoinSet::new();
-        let cluster_guard = cluster.read().await;
+        let pool_gaurd = pool.read().await;
 
-        for channel in cluster_guard.values() {
+        for channel in pool_gaurd.values() {
             let request = Request::new(AddNodeRequest { ip: addr.clone() });
             let channel = channel.clone();
             let addr = addr.clone();
@@ -187,8 +187,8 @@ impl Connections {
     }
 
     pub async fn join(&self, addr: String) -> Result<Vec<KvData>> {
-        let join_span = span!(Level::INFO, "join", addr = addr.clone());
-        let _enter = join_span.enter();
+        let trace_span = span!(Level::INFO, "join", addr = addr.clone());
+        let _enter = trace_span.enter();
 
         info!(
             "Starting join process to cluster through seed node: {}",
@@ -228,7 +228,7 @@ impl Connections {
             "Initiating GET operation for key: {} in the cluster",
             operation.key
         );
-        let cluster = Arc::clone(&self.cluster);
+        let pool = Arc::clone(&self.pool);
 
         let kv_operation = KvOperation {
             name: operation.name.clone(),
@@ -237,10 +237,10 @@ impl Connections {
             timestamp: Some(operation.timestamp),
             key: operation.key.clone(),
         };
-        let cluster_guard = cluster.read().await;
+        let pool_gaurd = pool.read().await;
         debug!("Needed quorum votes: {}", needed_quorum_votes);
         let mut futures_set = JoinSet::new();
-        for (ip, channel) in cluster_guard.iter() {
+        for (ip, channel) in pool_gaurd.iter() {
             let request = Request::new(kv_operation.clone());
             let ip = ip.clone();
             let channel = channel.clone();
@@ -289,7 +289,7 @@ impl Connections {
             operation.key
         );
 
-        let cluster = Arc::clone(&self.cluster);
+        let pool = Arc::clone(&self.pool);
 
         let kv_operation = KvOperation {
             name: operation.name.clone(),
@@ -299,12 +299,12 @@ impl Connections {
             key: operation.key.clone(),
         };
 
-        let cluster_guard = cluster.read().await;
+        let pool_gaurd = pool.read().await;
 
         debug!("Needed quorum votes: {}", needed_quorum_votes);
 
         let mut futures_set = JoinSet::new();
-        for channel in cluster_guard.values() {
+        for channel in pool_gaurd.values() {
             let request = Request::new(kv_operation.clone());
             let channel = channel.clone();
             futures_set.spawn(async move {
@@ -404,7 +404,7 @@ impl Connections {
             "Initiating ADD operation for key: {} in the cluster",
             operation.key
         );
-        let cluster = Arc::clone(&self.cluster);
+        let pool = Arc::clone(&self.pool);
 
         let kv_operation = KvOperation {
             name: operation.name.clone(),
@@ -414,10 +414,10 @@ impl Connections {
             key: operation.key.clone(),
         };
 
-        let cluster_guard = cluster.read().await;
+        let pool_gaurd = pool.read().await;
         debug!("Needed quorum votes: {}", needed_quorum_votes);
         let mut futures_set = JoinSet::new();
-        for (ip, channel) in cluster_guard.iter() {
+        for (ip, channel) in pool_gaurd.iter() {
             let request = Request::new(kv_operation.clone());
             let channel = channel.clone();
             let ip = ip.clone();
