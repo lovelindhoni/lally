@@ -149,9 +149,7 @@ impl ClusterManagement for GrpcServer {
             }))
         } else {
             error!("Failed to parse the client address");
-            Err(Status::invalid_argument(format!(
-                "Failed to connect to client",
-            )))
+            Err(Status::invalid_argument("Failed to connect to client"))
         }
     }
 
@@ -177,9 +175,9 @@ impl ClusterManagement for GrpcServer {
             }));
         } else {
             error!("Failed to parse the client node address");
-            Err(Status::internal(format!(
-                "Failed to remove node, failed to parse the client node address"
-            )))
+            Err(Status::internal(
+                "Failed to remove node, failed to parse the client node address",
+            ))
         }
     }
 
