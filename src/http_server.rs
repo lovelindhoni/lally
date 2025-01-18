@@ -1,7 +1,8 @@
 use crate::cluster::services::GetKvResponse;
 use crate::config::Config;
 use crate::lally::Lally;
-use crate::utils::{compare_timestamps, create_timestamp, timestamp_to_rfc3339, Operation};
+use crate::timestamp::{compare_timestamps, create_timestamp, timestamp_to_rfc3339};
+use crate::utils::Operation;
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use serde::Deserialize;
 use serde_json::json;

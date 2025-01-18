@@ -1,6 +1,7 @@
 use crate::cluster::services::KvData;
+use crate::timestamp::compare_timestamps;
 use crate::utils::Operation;
-use crate::utils::{compare_timestamps, parse_aof_log, KVResult};
+use crate::utils::{parse_aof_log, KVResult};
 use anyhow::{Context, Result};
 use dashmap::DashMap;
 use prost_types::Timestamp;

@@ -3,6 +3,7 @@ mod config;
 mod hooks;
 mod http_server;
 mod lally;
+mod timestamp;
 mod utils;
 
 use crate::cluster::GrpcServer;
