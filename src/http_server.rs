@@ -26,6 +26,14 @@ fn build_operation(payload: &Payload, operation_type: &str) -> Operation {
     }
 }
 
+async fn get_nodes_addrs(lally: web::Data<Arc<Lally>>) -> impl Responder {
+    let node_addrs = lally.pool.get_addrs().await;
+    HttpResponse::Ok().json(json!({
+        "status": "success",
+        "nodes": node_addrs
+    }))
+}
+
 async fn add_kv(
     lally: web::Data<Arc<Lally>>,
     config: web::Data<Config>,
@@ -305,6 +313,7 @@ pub async fn run(lally: Arc<Lally>, config: Config) -> std::io::Result<()> {
             .route("/add", web::post().to(add_kv))
             .route("/get", web::post().to(get_kv))
             .route("/remove", web::delete().to(remove_kv))
+            .route("/nodes", web::get().to(get_nodes_addrs))
             .route("/greet", web::get().to(greet))
     })
     .bind(addr)?
