@@ -4,18 +4,26 @@ use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tokio::fs::{canonicalize, copy, create_dir_all, read_to_string, OpenOptions};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
+#[inline]
 fn default_r_quorum() -> usize {
     1
 }
 
+#[inline]
 fn default_w_quorum() -> usize {
     1
 }
 
-fn default_port() -> u32 {
+#[inline]
+fn default_http_port() -> u16 {
     3000
+}
+
+#[inline]
+fn default_grpc_port() -> u16 {
+    50071
 }
 
 #[derive(FromArgs)]
@@ -35,11 +43,15 @@ pub struct CliArgs {
 
     /// ipv4 address of seed node
     #[argh(option)]
-    addr: Option<String>,
+    seed_node: Option<String>,
 
-    /// custom port for server, default is 3000
+    /// custom port for http server, default is 3000
     #[argh(option)]
-    port: Option<u32>,
+    http_port: Option<u16>,
+
+    /// custom port for grpc server, default is 50071
+    #[argh(option)]
+    grpc_port: Option<u16>,
 
     /// read quorum value
     #[argh(option)]
@@ -58,10 +70,13 @@ pub struct Config {
     #[serde(default)]
     replay_log: Option<PathBuf>,
 
-    addr: Option<String>,
+    seed_node: Option<String>,
 
-    #[serde(default = "default_port")]
-    port: u32,
+    #[serde(default = "default_http_port")]
+    http_port: u16,
+
+    #[serde(default = "default_grpc_port")]
+    grpc_port: u16,
 
     #[serde(default = "default_r_quorum")]
     read_quorum: usize,
@@ -90,14 +105,20 @@ impl Config {
             info!("Replay log file set: {:?}", path);
             config.replay_log = Some(path);
         }
-        if let Some(addr) = cli_args.addr {
+        if let Some(addr) = cli_args.seed_node {
             info!("Seed node address: {}", addr);
-            config.addr = Some(addr);
+            config.seed_node = Some(addr);
         }
-        if let Some(port) = cli_args.port {
-            config.port = port;
-            info!("Server port set to: {}", port);
+        if let Some(http_port) = cli_args.http_port {
+            config.http_port = http_port;
+            info!("HTTP server port set to: {}", http_port);
         }
+        if let Some(grpc_port) = cli_args.grpc_port {
+            config.grpc_port = grpc_port;
+            info!("GRPC server port set to: {}", grpc_port);
+            warn!("This assumes that all nodes in the cluster will use the same port for the gRPC server.");
+        }
+
         if let Some(read_quorum) = cli_args.read_quorum {
             config.read_quorum = read_quorum;
             info!("Read quorum set to: {}", read_quorum);
@@ -192,11 +213,14 @@ impl Config {
     }
 
     // getters
-    pub fn addr(&self) -> Option<&str> {
-        self.addr.as_deref()
+    pub fn seed_node(&self) -> Option<&str> {
+        self.seed_node.as_deref()
     }
-    pub fn port(&self) -> u32 {
-        self.port
+    pub fn http_port(&self) -> u16 {
+        self.http_port
+    }
+    pub fn grpc_port(&self) -> u16 {
+        self.grpc_port
     }
     pub fn read_quorum(&self) -> usize {
         self.read_quorum
@@ -214,8 +238,9 @@ impl Default for Config {
         Self {
             fresh: false,
             replay_log: None,
-            addr: None,
-            port: default_port(),
+            seed_node: None,
+            http_port: default_http_port(),
+            grpc_port: default_grpc_port(),
             read_quorum: default_r_quorum(),
             write_quorum: default_w_quorum(),
             aof_storage_path: PathBuf::new(), // Will be initialized properly in new()

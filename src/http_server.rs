@@ -292,7 +292,7 @@ async fn greet() -> impl Responder {
 }
 
 pub async fn run(lally: Arc<Lally>, config: Config) -> std::io::Result<()> {
-    let addr = format!("0.0.0.0:{}", config.port());
+    let addr = format!("0.0.0.0:{}", config.http_port());
 
     info!("HTTP Server started at {}", &addr);
 

@@ -101,18 +101,22 @@ impl Store {
     pub fn import_store(&self, store: Vec<KvData>) {
         info!("Importing store data with {} entries", store.len());
         for data in store {
-            let new_value = (data.value, data.timestamp.unwrap(), data.valid);
-            self.store
-                .entry(data.key.clone())
-                .and_modify(|existing_value| {
-                    if compare_timestamps(&new_value.1, &existing_value.1) == Ordering::Greater {
-                        *existing_value = new_value.clone();
-                        debug!("Updated key '{}'", data.key);
-                    }
-                })
-                .or_insert(new_value);
+            if let Some(timestamp) = data.timestamp {
+                // timestamp would be always present
+                let new_value = (data.value, timestamp, data.valid);
+                self.store
+                    .entry(data.key.clone())
+                    .and_modify(|existing_value| {
+                        if compare_timestamps(&new_value.1, &existing_value.1) == Ordering::Greater
+                        {
+                            *existing_value = new_value.clone();
+                            debug!("Updated key '{}'", data.key);
+                        }
+                    })
+                    .or_insert(new_value);
 
-            debug!("Imported key '{}'", data.key);
+                debug!("Imported key '{}'", data.key);
+            }
         }
         info!("Store import completed");
     }

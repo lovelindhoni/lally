@@ -43,13 +43,13 @@ async fn main() {
             };
 
             info!("Starting gRPC server...");
-            if let Err(e) = GrpcServer::run(Arc::clone(&lally)).await {
+            if let Err(e) = GrpcServer::run(Arc::clone(&lally), &config).await {
                 error!("Failed to start gRPC server: {}", e);
                 return;
             }
 
             // Joining the cluster if a seed node addr is provided
-            match config.addr() {
+            match config.seed_node() {
                 Some(addr) => {
                     info!("Attempting to join cluster on address: {}", addr);
                     match lally.pool.join(addr.to_string()).await {
