@@ -2,6 +2,7 @@
 name = "lally"
 version = "0.1.0"
 edition = "2021"
+description = "Lally is a distributed, in-memory key-value database built with Rust and Tokio, inspired by DynamoDB, prioritizing high availability, concurrency, extendability, and crash recovery via append-only logging"
 documentation = "https://github.com/lovelindhoni/lally"
 repository = "https://github.com/lovelindhoni/lally"
 homepage = "https://github.com/lovelindhoni/lally"
