@@ -123,6 +123,10 @@ impl ClusterManagement for GrpcServer {
             client_addr.set_port(self.grpc_port);
             let client_addr_str = client_addr.to_string();
             info!("Client {} attempting to join cluster", client_addr_str);
+            // we are packing up the store data and the nodes connected in the cluster rn and send it
+            // to the client node so that it could also replicate
+            let nodes_addrs: Vec<String> = self.lally.pool.get_addrs().await;
+            let store_data = self.lally.store.export_store();
 
             // gossiping the client node addr
             self.lally.pool.gossip(client_addr_str.clone()).await;
@@ -137,10 +141,6 @@ impl ClusterManagement for GrpcServer {
                 })?;
 
             info!("Client {} successfully joined the cluster", client_addr_str);
-            // we are packing up the store data and the nodes connected in the cluster rn and send it
-            // to the client node so that it could also replicate
-            let nodes_addrs: Vec<String> = self.lally.pool.get_addrs().await;
-            let store_data = self.lally.store.export_store();
 
             Ok(Response::new(JoinResponse {
                 message: "Joined successfully".to_string(),
