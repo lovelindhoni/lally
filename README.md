@@ -9,6 +9,12 @@ Lally is being designed for high concurrency, extendability via hooks, and featu
 > [!NOTE]
 > Lally is currently in the early stages of development and is not yet ready for serious production use.
 
+## Demo
+
+A Lally cluster consisting of three globally distributed EC2 instances.
+
+https://github.com/user-attachments/assets/6ec0d3df-a9d7-4a50-846b-08045bf3ebb5
+
 ## Features
 
 - **High Performance**: A highly concurrent, thread-safe, in-memory key-value database optimized to utilize all available CPU cores responsibly.
