@@ -72,7 +72,7 @@ jobs:
         shell: bash
         run: |
           mkdir dist
-          mv LICENSE README.md dist/
+          mv LICENSE README.md CHANGELOG.md dist/
           mv target/release/lally${{ steps.vars.outputs.BINARY_EXT }} dist/${{ steps.vars.outputs.BINARY_NAME }}${{ steps.vars.outputs.BINARY_EXT }}
           cd dist && ${{ matrix.archive_cmd }} ../${{ steps.vars.outputs.BINARY_NAME }}${{ steps.vars.outputs.ARCHIVE_EXT }} *
 
