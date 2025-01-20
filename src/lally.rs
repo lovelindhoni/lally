@@ -9,8 +9,10 @@ use pool::Pool;
 use std::sync::Arc;
 use store::Store;
 use tokio::signal::ctrl_c;
-use tokio::signal::unix::{signal, SignalKind};
 use tracing::info;
+
+#[cfg(unix)]
+use tokio::signal::unix::{signal, SignalKind};
 
 #[derive(Clone)]
 pub struct Lally {
@@ -38,16 +40,27 @@ impl Lally {
     }
 
     async fn shutdown(lally: Arc<Lally>) {
-        // Set up signal handling
-        let mut sigterm = signal(SignalKind::interrupt()).unwrap();
+        // Set up signal handling, only unix has this
+        #[cfg(unix)]
+        {
+            let mut sigterm = signal(SignalKind::interrupt()).unwrap();
+            tokio::select! {
+                _ = ctrl_c() => {
+                    info!("Received Ctrl+C signal");
+                },
+                _ = sigterm.recv() => {
+                    info!("Received SIGINT signal");
+                },
+            }
+        }
 
-        tokio::select! {
-            _ = ctrl_c() => {
-                info!("Received Ctrl+C signal");
-            },
-            _ = sigterm.recv() => {
-                info!("Received SIGINT signal");
-            },
+        #[cfg(not(unix))]
+        {
+            tokio::select! {
+                _ = ctrl_c() => {
+                    info!("Received Ctrl+C signal");
+                },
+            }
         }
 
         // Log graceful shutdown and perform cleanup
