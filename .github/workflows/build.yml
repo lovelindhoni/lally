@@ -1,0 +1,94 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-latest
+            arch: linux-x86_64
+            archive_cmd: tar -czvf
+          - platform: windows-latest
+            arch: win-x86_64
+            archive_cmd: zip -r
+          - platform: macos-latest
+            arch: mac-aarch64
+            archive_cmd: zip -r
+            args: "--target aarch64-apple-darwin"
+    runs-on: ${{ matrix.platform }}
+    outputs:
+      VERSION: ${{ steps.vars.outputs.VERSION }}
+      BINARY_NAME: ${{ steps.vars.outputs.BINARY_NAME }}
+      BINARY_EXT: ${{ steps.vars.outputs.BINARY_EXT }}
+      ARCHIVE_EXT: ${{ steps.vars.outputs.ARCHIVE_EXT }}
+
+    steps:
+      - name: Set shared variables
+        id: vars
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          BINARY_NAME="lally-v$VERSION-${{ matrix.arch }}"
+          BINARY_EXT=$([[ "${{ matrix.platform }}" == 'windows-latest' ]] && echo '.exe' || echo '')
+          ARCHIVE_EXT=$([[ "${{ matrix.platform }}" == 'ubuntu-latest' ]] && echo '.tar.gz' || echo '.zip')
+
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "BINARY_NAME=$BINARY_NAME" >> $GITHUB_OUTPUT
+          echo "BINARY_EXT=$BINARY_EXT" >> $GITHUB_OUTPUT
+          echo "ARCHIVE_EXT=$ARCHIVE_EXT" >> $GITHUB_OUTPUT
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          if [[ ${{ matrix.platform }} == 'ubuntu-latest' ]]; then
+            sudo apt-get update
+            sudo apt-get install -y protobuf-compiler libprotobuf-dev
+          elif [[ ${{ matrix.platform }} == 'windows-latest' ]]; then
+            choco install zip protoc
+          elif [[ ${{ matrix.platform }} == 'macos-latest' ]]; then
+            brew update
+            brew install protobuf
+          fi
+
+      - name: Setup rust toolchain
+        uses: moonrepo/setup-rust@v1
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Package build artifacts
+        shell: bash
+        run: |
+          mkdir dist
+          mv LICENSE README.md dist/
+          mv target/release/lally${{ steps.vars.outputs.BINARY_EXT }} dist/${{ steps.vars.outputs.BINARY_NAME }}${{ steps.vars.outputs.BINARY_EXT }}
+          cd dist && ${{ matrix.archive_cmd }} ../${{ steps.vars.outputs.BINARY_NAME }}${{ steps.vars.outputs.ARCHIVE_EXT }} *
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifact-v${{ steps.vars.outputs.VERSION }}-${{ matrix.arch }}
+          path: ${{ steps.vars.outputs.BINARY_NAME }}${{ steps.vars.outputs.ARCHIVE_EXT }}
+
+  merge:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Merge Artifacts
+        uses: actions/upload-artifact/merge@v4
+        with:
+          name: build-artifacts-v${{ needs.build.outputs.VERSION }}
+          pattern: build-artifact-*
+          delete-merged: true

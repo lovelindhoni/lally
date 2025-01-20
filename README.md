@@ -1,6 +1,6 @@
 # Lally
 
-[![CI](https://github.com/lovelindhoni/lally/actions/workflows/ci.yml/badge.svg)](https://github.com/lovelindhoni/lally/actions/workflows/ci.yml)
+[![Lint](https://github.com/lovelindhoni/lally/actions/workflows/lint.yml/badge.svg)](https://github.com/lovelindhoni/lally/actions/workflows/lint.yml)
 
 Lally is a distributed in-memory key-value database, Rust and Tokio, loosely inspired by the architecture of Amazon's DynamoDB.
 It prioritizes high availability, adhering to the AP (Availability and Partition Tolerance) aspects of the CAP theorem.
