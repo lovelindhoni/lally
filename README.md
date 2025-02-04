@@ -2,7 +2,7 @@
 
 [![Lint](https://github.com/lovelindhoni/lally/actions/workflows/lint.yml/badge.svg)](https://github.com/lovelindhoni/lally/actions/workflows/lint.yml)
 
-Lally is a distributed in-memory key-value database, Rust and Tokio, loosely inspired by the architecture of Amazon's DynamoDB.
+Lally is a distributed in-memory key-value database, Rust and Tokio, loosely inspired by Riak and Voldermort.
 It prioritizes high availability, adhering to the AP (Availability and Partition Tolerance) aspects of the CAP theorem.
 Lally is being designed for high concurrency, extendability via hooks, and features persistent append-only file logging for reliable crash recovery.
 
@@ -238,7 +238,7 @@ This binary is optimized for performance and ready for deployment.
 
 ## Roadmap (tentative)
 
-- Dockerization and Kubernetes compatibility for deployment and scalability
+- Kubernetes compatibility for deployment and scalability
 - Testing suite and performance benchmarking 👀
 - Periodic health checks to monitor the status of transparent channels between nodes in the pool
 - Background reconciliation (anti-entropy) process for automatic key value repairs, to fulfill eventual consistency
