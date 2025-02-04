@@ -236,6 +236,21 @@ Locate the compiled binary in target/release/lally
 
 This binary is optimized for performance and ready for deployment.
 
+### Docker Image
+
+Build the docker image:
+
+```bash
+cd lally
+docker build -t lally
+```
+
+Run the container
+
+```bash
+docker run --rm -v "/path/to/lally-folder":/root/.local/share/lally -v "/path/to/config-file":/app/lally.yml -v "/path/to/replayfile":/app/your-aof.txt -p 3000:3089 -p 50071:50071 lally:0.1.0 --replay-log /app/your-aof.txt
+```
+
 ## Roadmap (tentative)
 
 - Kubernetes compatibility for deployment and scalability
