@@ -8,7 +8,7 @@ repository = "https://github.com/lovelindhoni/lally"
 homepage = "https://github.com/lovelindhoni/lally"
 readme = "README.md"
 license = "MIT"
-keywords = ["kv-store", "db"]
+keywords = ["kv-store", "database", "distributed-systems"]
 publish = false
 
 [profile.dev]

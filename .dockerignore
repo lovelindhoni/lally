@@ -1,0 +1,13 @@
+target/
+
+.github
+
+**/.git/
+
+CHANGELOG.md
+LICENSE
+README.md
+
+.env
+.env.production
+.env.local
