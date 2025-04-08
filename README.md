@@ -2,7 +2,7 @@
 
 [![Lint](https://github.com/lovelindhoni/lally/actions/workflows/lint.yml/badge.svg)](https://github.com/lovelindhoni/lally/actions/workflows/lint.yml)
 
-Lally is a distributed in-memory key-value database, Rust and Tokio, loosely inspired by Riak and Voldermort.
+Lally is a distributed in-memory key-value database, written in Rust and Tokio, loosely inspired by Riak and Project Voldermort.
 It prioritizes high availability, adhering to the AP (Availability and Partition Tolerance) aspects of the CAP theorem.
 Lally is being designed for high concurrency, extendability via hooks, and features persistent append-only file logging for reliable crash recovery.
 
