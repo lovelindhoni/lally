@@ -26,6 +26,11 @@ fn default_grpc_port() -> u16 {
     50071
 }
 
+#[inline]
+fn default_aof_flush_interval() -> u64 {
+    100
+}
+
 #[derive(FromArgs)]
 /// A simple in memory kv store trying its best to be available
 pub struct CliArgs {
@@ -60,6 +65,10 @@ pub struct CliArgs {
     /// write quorum value
     #[argh(option)]
     write_quorum: Option<usize>,
+
+    /// aof flush interval in milliseconds
+    #[argh(option)]
+    aof_flush_interval: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -86,6 +95,9 @@ pub struct Config {
 
     #[serde(skip)]
     aof_storage_path: PathBuf,
+
+    #[serde(default = "default_aof_flush_interval")]
+    aof_flush_interval: u64,
 }
 
 impl Config {
@@ -113,12 +125,18 @@ impl Config {
             config.http_port = http_port;
             info!("HTTP server port set to: {}", http_port);
         }
+        if let Some(aof_flush_interval) = cli_args.aof_flush_interval {
+            config.aof_flush_interval = aof_flush_interval;
+            info!(
+                "Append only log flush interval set to: {}",
+                aof_flush_interval
+            );
+        }
         if let Some(grpc_port) = cli_args.grpc_port {
             config.grpc_port = grpc_port;
             info!("GRPC server port set to: {}", grpc_port);
             warn!("This assumes that all nodes in the cluster will use the same port for the gRPC server.");
         }
-
         if let Some(read_quorum) = cli_args.read_quorum {
             config.read_quorum = read_quorum;
             info!("Read quorum set to: {}", read_quorum);
@@ -231,6 +249,9 @@ impl Config {
     pub fn aof_file(&self) -> &Path {
         &self.aof_storage_path
     }
+    pub fn aof_flush_interval(&self) -> u64 {
+        self.aof_flush_interval
+    }
 }
 
 impl Default for Config {
@@ -243,6 +264,7 @@ impl Default for Config {
             grpc_port: default_grpc_port(),
             read_quorum: default_r_quorum(),
             write_quorum: default_w_quorum(),
+            aof_flush_interval: default_aof_flush_interval(),
             aof_storage_path: PathBuf::new(), // Will be initialized properly in new()
         }
     }

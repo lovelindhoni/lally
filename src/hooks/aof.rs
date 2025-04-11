@@ -88,7 +88,7 @@ impl AppendOnlyLog {
     }
 
     pub async fn init(config: &Config) -> Arc<Self> {
-        let flush_interval = Duration::from_millis(100);
+        let flush_interval = Duration::from_millis(config.aof_flush_interval());
         info!(
             "Initializing AppendOnlyLog with flush interval: {:?}",
             flush_interval

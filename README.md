@@ -43,6 +43,7 @@ You can configure Lally by passing the following CLI arguments:
 - `--grpc-port`: Custom port for the gRPC server (default: 50071).
 - `--read-quorum`: Specifies the number of nodes required for a successful read operation (default: 1).
 - `--write-quorum`: Specifies the number of nodes required for a successful write operation (default: 1).
+- `--aof_flush_interval`: Interval (in milliseconds) at which logs are flushed to disk (default: 100).
 - `--help`: Displays detailed usage information.
 
 Lally also supports configuration through a YAML file for greater flexibility and ease of use.
@@ -63,6 +64,7 @@ grpc_port: 50071 # Port for the gRPC server
 http_port: 3000 # Port for the HTTP server
 read_quorum: 1 # Number of nodes required for a successful read operation
 write_quorum: 1 # Number of nodes required for a successful write operation
+aof_flush_interval: 100 # Flush interval for logs to disk, in milliseconds.
 ```
 
 ### Priority of Configuration
