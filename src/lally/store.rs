@@ -1,5 +1,5 @@
 use crate::cluster::services::KvData;
-use crate::timestamp::compare_timestamps;
+use crate::utils::timestamp::compare_timestamps;
 use crate::utils::Operation;
 use crate::utils::{parse_aof_log, KVResult};
 use anyhow::{Context, Result};

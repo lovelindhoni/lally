@@ -8,7 +8,7 @@ use tracing::{debug, error, info};
 
 use super::Hook;
 use crate::config::Config;
-use crate::timestamp::timestamp_to_rfc3339;
+use crate::utils::timestamp::timestamp_to_rfc3339;
 use crate::utils::Operation;
 
 pub struct AppendOnlyLog {

@@ -1,7 +1,9 @@
-use crate::timestamp::timestamp_from_rfc3339;
+pub mod timestamp;
+
 use anyhow::{Context, Result};
 use prost_types::Timestamp;
 use std::collections::HashMap;
+use timestamp::timestamp_from_rfc3339;
 
 pub fn parse_aof_log(line: &str) -> Result<Operation> {
     if line.trim().is_empty() {
