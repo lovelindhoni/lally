@@ -4,7 +4,34 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
-## [0.1.0] - 2025-1-20
+## [0.2.0] - 2025-04-13
+
+### Added
+
+- Users can now customize the AOF (Append-Only File) flush interval via the configuration file. This improves write performance for specific workloads.
+- Added Docker support to streamline builds and deployment.
+
+### Changed
+
+- Moved the `timestamp` module into the `utils` package for better modularity.
+
+### Fixed
+
+- Corrected a small typo in the README documentation.
+
+### Deprecated
+
+- N/A
+
+### Removed
+
+- N/A
+
+### Security
+
+- N/A
+
+## [0.1.0] - 2025-01-20
 
 ### Added
 
