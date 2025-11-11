@@ -21,13 +21,6 @@
           hooks = {
             nixfmt.enable = true;
             rustfmt.enable = true;
-            cargo-check = {
-              enable = true;
-              name = "cargo check";
-              entry = "${pkgs.cargo}/bin/cargo check";
-              files = "\\.(rs|toml)$";
-              pass_filenames = false;
-            };
             trailing-whitespace = {
               enable = true;
               name = "trim trailing whitespace";

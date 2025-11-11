@@ -18,7 +18,6 @@
     }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import inputs.systems;
-      debug = true;
       imports = [
         inputs.flake-root.flakeModule
       ]

@@ -7,6 +7,7 @@
       inputs',
       pkgs,
       system,
+      lib,
       ...
     }:
     {
@@ -17,29 +18,24 @@
           config.flake-root.devShell
           config.pre-commit.devShell
         ];
-        packages =
-          with pkgs;
-          [
-            nixd
-            nixfmt
-            rustc
-            cargo
-            rustfmt
-            clippy
-            rust-analyzer
-            pkg-config
-            protobuf
-            openssl
-            just
-            gdb
-            lldb
-            gcc
-            stdenv.cc
-          ]
-          ++ lib.optionals stdenv.isDarwin [
-            darwin.apple_sdk.frameworks.Security
-            darwin.apple_sdk.frameworks.SystemConfiguration
-          ];
+        packages = with pkgs; [
+          nixd
+          nixfmt
+          rustc
+          cargo
+          rustfmt
+          clippy
+          rust-analyzer
+          pkg-config
+          protobuf
+          openssl
+          just
+          gdb
+          lldb
+          gcc
+          stdenv.cc
+        ];
+
         shellHook = ''
           echo "rustc version: `rustc --version`"
           echo "cargo version: `cargo --version`"

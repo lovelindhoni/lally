@@ -39,15 +39,9 @@
               pkg-config
               protobuf
             ];
-            buildInputs =
-              with pkgs;
-              [
-                openssl
-              ]
-              ++ lib.optionals pkgs.stdenv.isDarwin [
-                pkgs.darwin.apple_sdk.frameworks.Security
-                pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
-              ];
+            buildInputs = with pkgs; [
+              openssl
+            ];
             PROTOC = "${pkgs.protobuf}/bin/protoc";
             PROTOC_INCLUDE = "${pkgs.protobuf}/include";
             meta = with lib; {
