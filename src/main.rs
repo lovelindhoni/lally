@@ -13,14 +13,14 @@ use std::sync::Arc;
 use tracing::{error, info, warn};
 
 const LOGO: &str = r#"
- 
+
  ██╗      █████╗ ██╗     ██╗  ██╗   ██╗
  ██║     ██╔══██╗██║     ██║  ╚██╗ ██╔╝
  ██║     ███████║██║     ██║   ╚████╔╝
  ██║     ██╔══██║██║     ██║    ╚██╔╝
  ███████╗██║  ██║███████╗███████╗██║
  ╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝╚═╝
- 
+
  An In-Memory key-value DB, trying its best
  to achieve availability
  "#;
