@@ -1,6 +1,6 @@
 [package]
 name = "lally"
-version = "0.2.0"
+version = "0.1.1"
 edition = "2021"
 description = "Lally is a distributed, in-memory key-value database built with Rust and Tokio, inspired by DynamoDB, prioritizing high availability, concurrency, extendability, and crash recovery via append-only logging"
 documentation = "https://github.com/lovelindhoni/lally"
