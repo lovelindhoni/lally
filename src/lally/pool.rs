@@ -6,30 +6,35 @@ use crate::cluster::services::{
 };
 use crate::utils::Operation;
 use anyhow::{anyhow, Context, Result};
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::RwLock;
+use papaya::HashMap;
+use rapidhash::fast::RandomState;
 use tokio::task::JoinSet;
 use tonic::transport::{Channel, Uri};
 use tonic::Request;
 use tracing::{debug, error, info, span, Level};
 
-#[derive(Default)]
+type PoolMap = HashMap<String, Channel, RandomState>;
+
 pub struct Pool {
-    pub pool: Arc<RwLock<HashMap<String, Channel>>>,
+    pool: PoolMap,
+}
+
+impl Default for Pool {
+    fn default() -> Self {
+        Pool {
+            pool: HashMap::builder().hasher(RandomState::default()).build(),
+        }
+    }
 }
 
 impl Pool {
-    pub async fn get_addrs(&self) -> Vec<String> {
-        let pool = self.pool.read().await;
-        pool.keys().cloned().collect()
+    pub fn get_addrs(&self) -> Vec<String> {
+        self.pool.pin().iter().map(|(k, _)| k.clone()).collect()
     }
-    pub async fn remove(&self, ip: &String) -> Result<String> {
-        // remove a node from the pool
-        let mut pool = self.pool.write().await;
 
-        match pool.remove(ip) {
-            Some(_channel) => {
+    pub fn remove(&self, ip: &String) -> Result<String> {
+        match self.pool.pin().remove(ip) {
+            Some(_) => {
                 info!(ip = %ip, "Node removed successfully");
                 Ok("Removed Node".to_string())
             }
@@ -39,16 +44,20 @@ impl Pool {
             }
         }
     }
+
     pub async fn leave(&self) {
-        // leaves from the cluster volunatarily (i.e gracefull shutdown)
-        let pool = self.pool.write().await;
         info!("Starting to leave the cluster");
+        let entries: Vec<(String, Channel)> = self
+            .pool
+            .pin()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+
         let mut futures_set = JoinSet::new();
-        for (ip, channel) in pool.iter() {
+        for (ip, channel) in entries {
             let trace_span = span!(Level::INFO, "remove_node", ip = %ip);
             let _enter = trace_span.enter();
-            let channel = channel.clone();
-            let ip = ip.clone();
             let request = Request::new(NoContentRequest {});
             futures_set.spawn(async move {
                 let mut conn = ClusterManagementClient::new(channel);
@@ -65,23 +74,13 @@ impl Pool {
     }
 
     pub async fn conn_make(&self, addr: &String) -> Result<Channel> {
-        let trace_span = span!(Level::INFO, "conn_make", addr = %addr);
+        let trace_span = span!(Level::DEBUG, "conn_make", addr = %addr);
         let _enter = trace_span.enter();
-        // returns the connection channel from the pool or create one if it don't exists
-        let pool = Arc::clone(&self.pool);
 
-        let pool_gaurd = pool.read().await;
-
-        if let Some(channel) = pool_gaurd.get(addr) {
+        if let Some(channel) = self.pool.pin().get(addr) {
             return Ok(channel.clone());
         }
 
-        drop(pool_gaurd);
-        let mut pool_gaurd = pool.write().await;
-        // we check again, in case another thread added the node between the read and write lock
-        if let Some(channel) = pool_gaurd.get(addr) {
-            return Ok(channel.clone());
-        }
         info!(
             "Attempting to make a connection to node at address: {}",
             addr
@@ -94,9 +93,10 @@ impl Pool {
         match Channel::builder(client_uri).connect().await {
             Ok(channel) => {
                 info!("Successfully connected to {}", addr);
-
-                pool_gaurd.insert(addr.clone(), channel.clone());
-                Ok(channel)
+                // If a concurrent caller raced us, keep whichever channel landed first.
+                let pin = self.pool.pin();
+                let stored = pin.get_or_insert_with(addr.clone(), || channel.clone());
+                Ok(stored.clone())
             }
             Err(e) => {
                 error!("Failed to connect to {}: {}", addr, e);
@@ -137,19 +137,16 @@ impl Pool {
                     }
                 }
             });
-            // gossiping the addition of new node to the cluster to all the present nodes
         }
 
-        let pool = Arc::clone(&self.pool);
         let results = futures_set.join_all().await;
-        for result in results.into_iter().flatten() {
-            let mut pool_gaurd = pool.write().await;
-            pool_gaurd.insert(result.0, result.1);
+        let pin = self.pool.pin();
+        for (ip, channel) in results.into_iter().flatten() {
+            pin.insert(ip, channel);
         }
         info!("Finished processing bulk connection setup.");
     }
 
-    // gossiping the addition of new node to the cluster to all the present nodes
     pub async fn gossip(&self, addr: String) {
         let trace_span = span!(Level::INFO, "gossip", addr = addr.clone());
         let _enter = trace_span.enter();
@@ -159,16 +156,14 @@ impl Pool {
             addr
         );
 
-        let pool = Arc::clone(&self.pool);
+        let channels: Vec<Channel> =
+            self.pool.pin().iter().map(|(_, v)| v.clone()).collect();
         let mut futures_set = JoinSet::new();
-        let pool_gaurd = pool.read().await;
-
-        for channel in pool_gaurd.values() {
+        for channel in channels {
             let request = Request::new(AddNodeRequest { ip: addr.clone() });
-            let channel = channel.clone();
             let addr = addr.clone();
             futures_set.spawn(async move {
-                info!("Gossiping to node with address: {}", addr);
+                debug!("Gossiping to node with address: {}", addr);
                 let mut conn = ClusterManagementClient::new(channel);
                 match conn.add_node(request).await {
                     Ok(msg) => {
@@ -188,7 +183,6 @@ impl Pool {
         );
     }
 
-    // volunatarily joining the cluster
     pub async fn join(&self, addr: String) -> Result<Vec<KvData>> {
         let trace_span = span!(Level::INFO, "join", addr = addr.clone());
         let _enter = trace_span.enter();
@@ -222,17 +216,15 @@ impl Pool {
         Ok(message.store_data)
     }
 
-    // key value operations across the cluster pool to achieve quorum
     pub async fn get_kv(
         &self,
         operation: &Operation,
         needed_quorum_votes: usize,
     ) -> Vec<(String, GetKvResponse)> {
-        info!(
+        debug!(
             "Initiating GET operation for key: {} in the cluster",
             operation.key
         );
-        let pool = Arc::clone(&self.pool);
 
         let kv_operation = KvOperation {
             name: operation.name.clone(),
@@ -241,18 +233,23 @@ impl Pool {
             timestamp: Some(operation.timestamp),
             key: operation.key.clone(),
         };
-        let pool_gaurd = pool.read().await;
+
+        let entries: Vec<(String, Channel)> = self
+            .pool
+            .pin()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+
         debug!("Needed quorum votes: {}", needed_quorum_votes);
         let mut futures_set = JoinSet::new();
-        for (ip, channel) in pool_gaurd.iter() {
+        for (ip, channel) in entries {
             let request = Request::new(kv_operation.clone());
-            let ip = ip.clone();
-            let channel = channel.clone();
             futures_set.spawn(async move {
                 let mut conn = KvStoreClient::new(channel);
                 match conn.get_kv(request).await {
                     Ok(response) => {
-                        info!("Successfully retrieved key from {}: {:?}", ip, response);
+                        debug!("Successfully retrieved key from {}: {:?}", ip, response);
                         Ok((ip, response.into_inner()))
                     }
                     Err(e) => {
@@ -288,12 +285,10 @@ impl Pool {
         operation: &Operation,
         needed_quorum_votes: usize,
     ) -> Vec<RemoveKvResponse> {
-        info!(
+        debug!(
             "Initiating REMOVE operation for key: {} in the cluster",
             operation.key
         );
-
-        let pool = Arc::clone(&self.pool);
 
         let kv_operation = KvOperation {
             name: operation.name.clone(),
@@ -303,14 +298,14 @@ impl Pool {
             key: operation.key.clone(),
         };
 
-        let pool_gaurd = pool.read().await;
+        let channels: Vec<Channel> =
+            self.pool.pin().iter().map(|(_, v)| v.clone()).collect();
 
         debug!("Needed quorum votes: {}", needed_quorum_votes);
 
         let mut futures_set = JoinSet::new();
-        for channel in pool_gaurd.values() {
+        for channel in channels {
             let request = Request::new(kv_operation.clone());
-            let channel = channel.clone();
             futures_set.spawn(async move {
                 let mut conn = KvStoreClient::new(channel);
                 match conn.remove_kv(request).await {
@@ -333,7 +328,6 @@ impl Pool {
                     error!("Error during REMOVE request: {}", e);
                 }
                 Err(e) => {
-                    // task panic maybe?
                     error!("Error in task execution: {:?}", e);
                 }
             }
@@ -346,11 +340,10 @@ impl Pool {
         operation: &Operation,
         needed_quorum_votes: usize,
     ) -> Vec<AddKvResponse> {
-        info!(
+        debug!(
             "Initiating ADD operation for key: {} in the cluster",
             operation.key
         );
-        let pool = Arc::clone(&self.pool);
 
         let kv_operation = KvOperation {
             name: operation.name.clone(),
@@ -360,19 +353,23 @@ impl Pool {
             key: operation.key.clone(),
         };
 
-        let pool_gaurd = pool.read().await;
+        let entries: Vec<(String, Channel)> = self
+            .pool
+            .pin()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+
         debug!("Needed quorum votes: {}", needed_quorum_votes);
         let mut futures_set = JoinSet::new();
-        for (ip, channel) in pool_gaurd.iter() {
+        for (ip, channel) in entries {
             let request = Request::new(kv_operation.clone());
-            let channel = channel.clone();
-            let ip = ip.clone();
             futures_set.spawn(async move {
-                info!("Sending ADD request to IP: {}", ip);
+                debug!("Sending ADD request to IP: {}", ip);
                 let mut conn = KvStoreClient::new(channel);
                 match conn.add_kv(request).await {
                     Ok(response) => {
-                        info!("Successfully added key to {}: {:?}", ip, response);
+                        debug!("Successfully added key to {}: {:?}", ip, response);
                         Ok(response.into_inner())
                     }
                     Err(e) => {
@@ -403,8 +400,6 @@ impl Pool {
         responses
     }
 
-    // these two infant functions are used for read repair alone, in case if we
-    // need to add or remove a kv on a specific node in the cluster that has lagging timestamp
     pub async fn solo_add_kv(&self, operation: &Operation, ip: &String) {
         let request = KvOperation {
             name: operation.name.clone(),
@@ -418,7 +413,7 @@ impl Pool {
                 let mut conn = KvStoreClient::new(channel);
                 match conn.add_kv(Request::new(request)).await {
                     Ok(response) => {
-                        info!(
+                        debug!(
                             "Successfully added key: {} with response: {:?}",
                             operation.key, response
                         );
@@ -447,7 +442,7 @@ impl Pool {
                 let mut conn = KvStoreClient::new(channel);
                 match conn.remove_kv(Request::new(request)).await {
                     Ok(response) => {
-                        info!(
+                        debug!(
                             "Successfully removed key: {} with response: {:?}",
                             operation.key, response
                         );

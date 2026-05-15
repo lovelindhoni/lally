@@ -80,7 +80,7 @@ impl KvStore for GrpcServer {
     ) -> Result<Response<AddKvResponse>, Status> {
         let operation = convert_to_operation(request.into_inner());
 
-        self.lally.hooks.invoke_all(&operation).await;
+        self.lally.hooks.invoke_all(&operation);
 
         let _add_response = self.lally.store.add(&operation);
 
@@ -95,7 +95,7 @@ impl KvStore for GrpcServer {
     ) -> Result<Response<RemoveKvResponse>, Status> {
         let operation = convert_to_operation(request.into_inner());
 
-        self.lally.hooks.invoke_all(&operation).await;
+        self.lally.hooks.invoke_all(&operation);
 
         let remove_response = self.lally.store.remove(&operation);
 
@@ -125,7 +125,7 @@ impl ClusterManagement for GrpcServer {
             info!("Client {} attempting to join cluster", client_addr_str);
             // we are packing up the store data and the nodes connected in the cluster rn and send it
             // to the client node so that it could also replicate
-            let nodes_addrs: Vec<String> = self.lally.pool.get_addrs().await;
+            let nodes_addrs: Vec<String> = self.lally.pool.get_addrs();
             let store_data = self.lally.store.export_store();
 
             // gossiping the client node addr
@@ -163,7 +163,7 @@ impl ClusterManagement for GrpcServer {
 
             info!("Attempting to remove node {}", client_ip);
 
-            self.lally.pool.remove(&client_ip).await.map_err(|err| {
+            self.lally.pool.remove(&client_ip).map_err(|err| {
                 error!("Failed to remove node {}: {}", client_ip, err);
                 Status::internal(format!("Failed to remove node: {}", err))
             })?;
