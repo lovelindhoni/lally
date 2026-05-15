@@ -3,31 +3,32 @@ use crate::utils::timestamp::compare_timestamps;
 use crate::utils::Operation;
 use crate::utils::{parse_aof_log, KVResult};
 use anyhow::{Context, Result};
-use dashmap::DashMap;
+use papaya::HashMap;
 use prost_types::Timestamp;
+use rapidhash::fast::RandomState;
 use std::cmp::Ordering;
 use std::path::Path;
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::{debug, error, info};
 
+type StoreMap = HashMap<String, (String, Timestamp, bool), RandomState>;
+
 pub struct Store {
-    store: DashMap<String, (String, Timestamp, bool)>,
+    store: StoreMap,
 }
 
 impl Store {
     pub async fn new(log_path: &Path) -> Result<Self> {
-        // Log when the store is being created
         info!(
             "Initializing store and replaying AOF log from {:?}",
             log_path
         );
 
         let store = Store {
-            store: DashMap::new(),
+            store: HashMap::builder().hasher(RandomState::default()).build(),
         };
 
-        // Replay the AOF file and log the result
         store
             .replay_aof(log_path)
             .await
@@ -37,7 +38,6 @@ impl Store {
     }
 
     async fn replay_aof(&self, log_path: &Path) -> Result<()> {
-        // Log the start of the AOF replay
         info!("Starting AOF replay from {:?}", log_path);
 
         let file = BufReader::new(
@@ -53,6 +53,7 @@ impl Store {
 
         let mut lines = file.lines();
         let mut line_count = 0;
+        let pin = self.store.pin();
 
         while let Some(line) = lines.next_line().await? {
             line_count += 1;
@@ -60,15 +61,14 @@ impl Store {
                 match operation.name.as_str() {
                     "ADD" => {
                         if let Some(value) = operation.value {
-                            self.store
-                                .insert(operation.key.clone(), (value, operation.timestamp, true));
+                            pin.insert(operation.key.clone(), (value, operation.timestamp, true));
                             debug!("ADD operation: inserted key '{}'", operation.key);
                         } else {
                             error!("Missing value for ADD operation, this shouldn't happen");
                         }
                     }
                     "REMOVE" => {
-                        self.store.remove(&operation.key);
+                        pin.remove(&operation.key);
                         debug!("REMOVE operation: removed key '{}'", operation.key);
                     }
                     _ => error!("Unknown operation: {}", operation.name),
@@ -84,38 +84,37 @@ impl Store {
 
     pub fn export_store(&self) -> Vec<KvData> {
         info!("Exporting store data");
-        let mut result = Vec::new();
-        for entry in self.store.iter() {
-            let value = entry.value().clone();
-            let temp = KvData {
-                key: entry.key().clone(),
-                value: value.0,
+        let pin = self.store.pin();
+        let result: Vec<KvData> = pin
+            .iter()
+            .map(|(key, value)| KvData {
+                key: key.clone(),
+                value: value.0.clone(),
                 timestamp: Some(value.1),
                 valid: value.2,
-            };
-            result.push(temp);
-        }
+            })
+            .collect();
         info!("Store data exported with {} entries", result.len());
         result
     }
 
     pub fn import_store(&self, store: Vec<KvData>) {
         info!("Importing store data with {} entries", store.len());
+        let pin = self.store.pin();
         for data in store {
             if let Some(timestamp) = data.timestamp {
-                // timestamp would be always present
                 let new_value = (data.value, timestamp, data.valid);
-                self.store
-                    .entry(data.key.clone())
-                    .and_modify(|existing_value| {
-                        if compare_timestamps(&new_value.1, &existing_value.1) == Ordering::Greater
-                        {
-                            *existing_value = new_value.clone();
-                            debug!("Updated key '{}'", data.key);
+                pin.update_or_insert_with(
+                    data.key.clone(),
+                    |existing| {
+                        if compare_timestamps(&new_value.1, &existing.1) == Ordering::Greater {
+                            new_value.clone()
+                        } else {
+                            existing.clone()
                         }
-                    })
-                    .or_insert(new_value);
-
+                    },
+                    || new_value.clone(),
+                );
                 debug!("Imported key '{}'", data.key);
             }
         }
@@ -132,6 +131,7 @@ impl Store {
             key, value
         );
         self.store
+            .pin()
             .insert(key.clone(), (value.clone(), timestamp, true));
 
         KVResult {
@@ -142,58 +142,60 @@ impl Store {
     }
 
     pub fn remove(&self, operation: &Operation) -> KVResult {
-        let remove_kv = self.store.get_mut(&operation.key);
-
         debug!("Performing REMOVE operation for key '{}'", operation.key);
+        let pin = self.store.pin();
 
-        if let Some(mut value) = remove_kv {
-            if !value.2 {
+        // Snapshot the current state. The check-then-update is benign-racy:
+        // a concurrent REMOVE arriving between get and update just overwrites
+        // with the same tombstone shape.
+        match pin.get(&operation.key) {
+            Some(existing) if existing.2 => {
+                let new_value = (existing.0.clone(), operation.timestamp, false);
+                pin.update(operation.key.clone(), |_| new_value.clone());
+                debug!("Key '{}' successfully removed", operation.key);
+                KVResult {
+                    success: true,
+                    value: None,
+                    timestamp: Some(operation.timestamp),
+                }
+            }
+            Some(_) => {
                 error!(
                     "Failed to remove key '{}': it is already marked as invalid",
                     operation.key
                 );
-                return KVResult {
+                KVResult {
                     success: false,
                     value: None,
                     timestamp: None,
-                };
-            } else {
-                value.1 = operation.timestamp;
-                value.2 = false;
-                info!("Key '{}' successfully removed", operation.key);
-                return KVResult {
-                    success: true,
-                    value: None,
-                    timestamp: Some(value.1),
-                };
+                }
             }
-        }
-
-        info!("Key '{}' not found for removal", operation.key);
-        KVResult {
-            success: false,
-            value: None,
-            timestamp: None,
+            None => {
+                debug!("Key '{}' not found for removal", operation.key);
+                KVResult {
+                    success: false,
+                    value: None,
+                    timestamp: None,
+                }
+            }
         }
     }
 
     pub fn get(&self, operation: &Operation) -> KVResult {
-        let get_kv = self.store.get(&operation.key);
-
         debug!("Performing GET operation for key '{}'", operation.key);
+        let pin = self.store.pin();
 
-        match get_kv {
+        match pin.get(&operation.key) {
             Some(value) => {
                 if value.2 {
-                    // if the kv is found and marked as valid alone
-                    info!("Key '{}' found with valid value", operation.key);
+                    debug!("Key '{}' found with valid value", operation.key);
                     KVResult {
                         success: true,
                         value: Some(value.0.clone()),
                         timestamp: Some(value.1),
                     }
                 } else {
-                    info!("Key '{}' found but marked as invalid", operation.key);
+                    debug!("Key '{}' found but marked as invalid", operation.key);
                     KVResult {
                         success: false,
                         value: None,
@@ -202,7 +204,7 @@ impl Store {
                 }
             }
             None => {
-                info!("Key '{}' not found", operation.key);
+                debug!("Key '{}' not found", operation.key);
                 KVResult {
                     success: false,
                     value: None,

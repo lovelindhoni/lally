@@ -27,7 +27,7 @@ fn build_operation(payload: &Payload, operation_type: &str) -> Operation {
 }
 
 async fn get_nodes_addrs(lally: web::Data<Arc<Lally>>) -> impl Responder {
-    let node_addrs = lally.pool.get_addrs().await;
+    let node_addrs = lally.pool.get_addrs();
     HttpResponse::Ok().json(json!({
         "status": "success",
         "nodes": node_addrs
@@ -39,7 +39,7 @@ async fn add_kv(
     config: web::Data<Config>,
     payload: web::Json<Payload>,
 ) -> impl Responder {
-    let trace_span = span!(Level::INFO, "ADD_KV");
+    let trace_span = span!(Level::DEBUG, "ADD_KV");
     let _enter = trace_span.enter();
 
     if payload.value.is_none() {
@@ -52,14 +52,14 @@ async fn add_kv(
 
     let operation = build_operation(&payload, "ADD");
 
-    info!(key = %operation.key, "Incoming ADD operation");
-    lally.hooks.invoke_all(&operation).await;
+    debug!(key = %operation.key, "Incoming ADD operation");
+    lally.hooks.invoke_all(&operation);
     let response = lally.store.add(&operation);
     let response_timestamp = response
         .timestamp
         .expect("timestamp will be present for ADD operation");
 
-    info!(key = %operation.key, "Added key to local store, timestamp: {}", response_timestamp);
+    debug!(key = %operation.key, "Added key to local store, timestamp: {}", response_timestamp);
 
     // write_quorum - 1 means leaving out the current local node
     let needed_quorum_votes = config.write_quorum() - 1;
@@ -72,9 +72,7 @@ async fn add_kv(
         "partial"
     };
 
-    info!(key = %operation.key, quorum_state = %quorum_state);
-
-    info!(key = %operation.key, "Key-Value successfully added");
+    debug!(key = %operation.key, quorum_state = %quorum_state, "Key-Value add complete");
     HttpResponse::Ok().json(json!({
         "status": quorum_state,
         "key": payload.key,
@@ -97,15 +95,15 @@ async fn get_kv(
     config: web::Data<Config>,
     payload: web::Json<Payload>,
 ) -> impl Responder {
-    let trace_span = span!(Level::INFO, "GET_KV");
+    let trace_span = span!(Level::DEBUG, "GET_KV");
     let _enter = trace_span.enter();
 
     let operation = build_operation(&payload, "GET");
 
-    info!(key = %operation.key, "Incoming GET operation");
+    debug!(key = %operation.key, "Incoming GET operation");
     let needed_quorum_votes = config.read_quorum() - 1;
 
-    info!(key = %operation.key, "Retrieving key from local store");
+    debug!(key = %operation.key, "Retrieving key from local store");
     let get_op = lally.store.get(&operation);
 
     let mut cluster_responses = lally.pool.get_kv(&operation, needed_quorum_votes).await;
@@ -122,7 +120,7 @@ async fn get_kv(
         "partial"
     };
 
-    info!(key = %operation.key, quorum_state = %quorum_state);
+    debug!(key = %operation.key, quorum_state = %quorum_state);
     // does read repair, prolly will be moved to a seperate function
 
     let max_timestamp = cluster_responses
@@ -197,7 +195,7 @@ async fn get_kv(
             }
 
             if let Some(value) = &latest_response.value {
-                info!(key = %operation.key, "Key '{}' found with value '{}'", &operation.key, &value);
+                debug!(key = %operation.key, "Key '{}' found with value '{}'", &operation.key, &value);
                 return HttpResponse::Ok().json(json!({
                         "status": quorum_state,
                         "key": operation.key,
@@ -232,14 +230,14 @@ async fn remove_kv(
     config: web::Data<Config>,
     payload: web::Json<Payload>,
 ) -> impl Responder {
-    let trace_span = span!(Level::INFO, "REMOVE_KV");
+    let trace_span = span!(Level::DEBUG, "REMOVE_KV");
     let _enter = trace_span.enter();
 
     let operation = build_operation(&payload, "REMOVE");
 
-    info!(key = %operation.key, "Incoming REMOVE operation");
+    debug!(key = %operation.key, "Incoming REMOVE operation");
 
-    lally.hooks.invoke_all(&operation).await;
+    lally.hooks.invoke_all(&operation);
 
     debug!("Attempting to remove key from local node");
     let remove_response = lally.store.remove(&operation);
@@ -255,7 +253,7 @@ async fn remove_kv(
         "partial"
     };
 
-    info!(key = %operation.key, quorum_state = %quorum_state);
+    debug!(key = %operation.key, quorum_state = %quorum_state);
 
     // Check if the key was removed, on atleast one of a node in pool
     let mut is_removed = remove_response.success;
@@ -269,7 +267,7 @@ async fn remove_kv(
     }
 
     let message = if is_removed {
-        info!(key = %operation.key, "Key successfully removed");
+        debug!(key = %operation.key, "Key successfully removed");
         format!("Key '{}' was successfully removed.", operation.key)
     } else {
         warn!(key = %operation.key, "Key removal failed or quorum not achieved");

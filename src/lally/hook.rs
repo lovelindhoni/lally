@@ -1,8 +1,8 @@
 use crate::hooks::Hook;
 use crate::utils::Operation;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use tracing::{info, span, Level};
+use std::sync::RwLock;
+use tracing::{debug, info, span, Level};
 
 #[derive(Default)]
 pub struct Hooks {
@@ -10,8 +10,8 @@ pub struct Hooks {
 }
 
 impl Hooks {
-    pub async fn register(&self, hook: Arc<dyn Hook>) {
-        let mut lock_hooks = self.hooks.write().await;
+    pub fn register(&self, hook: Arc<dyn Hook>) {
+        let mut lock_hooks = self.hooks.write().expect("hooks lock poisoned");
         lock_hooks.push(hook);
         info!(
             "Hook registered successfully, total hooks: {}",
@@ -19,14 +19,12 @@ impl Hooks {
         );
     }
 
-    pub async fn invoke_all(&self, operation: &Operation) {
-        let hooks = self.hooks.read().await;
-        let trace_span = span!(Level::INFO, "HOOKS");
+    pub fn invoke_all(&self, operation: &Operation) {
+        let hooks = self.hooks.read().expect("hooks lock poisoned");
+        let trace_span = span!(Level::DEBUG, "HOOKS");
         let _enter = trace_span.enter();
 
-        info!(key = %operation.key, "Invoking hooks for the {} operation", operation.name);
-        // only log if hooks fails, currently the aof hook which is the only one, doesn't fail
-        // (hopefully)
+        debug!(key = %operation.key, "Invoking hooks for the {} operation", operation.name);
         for hook in hooks.iter() {
             hook.invoke(operation);
         }

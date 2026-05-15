@@ -68,7 +68,7 @@ async fn main() {
             }
 
             let wal_hook = AppendOnlyLog::init(&config).await;
-            lally.hooks.register(wal_hook).await;
+            lally.hooks.register(wal_hook);
 
             if let Err(e) = http_server::run(Arc::clone(&lally), config).await {
                 error!("Failed to run HTTP server: {}", e);
