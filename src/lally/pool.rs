@@ -156,8 +156,7 @@ impl Pool {
             addr
         );
 
-        let channels: Vec<Channel> =
-            self.pool.pin().iter().map(|(_, v)| v.clone()).collect();
+        let channels: Vec<Channel> = self.pool.pin().iter().map(|(_, v)| v.clone()).collect();
         let mut futures_set = JoinSet::new();
         for channel in channels {
             let request = Request::new(AddNodeRequest { ip: addr.clone() });
@@ -298,8 +297,7 @@ impl Pool {
             key: operation.key.clone(),
         };
 
-        let channels: Vec<Channel> =
-            self.pool.pin().iter().map(|(_, v)| v.clone()).collect();
+        let channels: Vec<Channel> = self.pool.pin().iter().map(|(_, v)| v.clone()).collect();
 
         debug!("Needed quorum votes: {}", needed_quorum_votes);
 
