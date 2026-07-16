@@ -7,7 +7,7 @@ It prioritizes high availability, adhering to the AP (Availability and Partition
 Lally is being designed for high concurrency, extendability via hooks, and features persistent append-only file logging for reliable crash recovery.
 
 > [!NOTE]
-> Lally is currently in the early stages of development and is not yet ready for serious production use.
+> Lally is an educational piece of work.
 
 ## Demo
 
